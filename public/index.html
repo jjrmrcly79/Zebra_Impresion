@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Nexia Print Bridge · ZC300</title>
+<style>
+  :root { --marca:#1f6feb; --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --mut:#8b949e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--txt); }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:17px; margin:0; } header .dot{ width:10px;height:10px;border-radius:50%;background:#3fb950;}
+  header small { color:var(--mut); margin-left:auto; }
+  main { max-width:880px; margin:0 auto; padding:24px; display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .tab { flex:1; padding:9px; text-align:center; border:1px solid var(--line); border-radius:8px; cursor:pointer; color:var(--mut); font-size:14px; }
+  .tab.active { background:var(--marca); color:#fff; border-color:var(--marca); }
+  label { display:block; font-size:12px; color:var(--mut); margin:12px 0 4px; }
+  input,select { width:100%; padding:9px; background:#0d1117; border:1px solid var(--line); border-radius:8px; color:var(--txt); font-size:14px; }
+  .drop { border:2px dashed var(--line); border-radius:10px; padding:28px; text-align:center; color:var(--mut); cursor:pointer; }
+  .drop.over { border-color:var(--marca); color:var(--txt); }
+  .row { display:flex; gap:10px; } .row > * { flex:1; }
+  button { width:100%; padding:11px; border:0; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; margin-top:14px; }
+  .primary { background:var(--marca); color:#fff; } .ghost { background:#21262d; color:var(--txt); }
+  .preview { display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .card { width:100%; aspect-ratio:1011/638; background:#0d1117; border:1px solid var(--line); border-radius:10px; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .card img { width:100%; height:100%; object-fit:contain; }
+  .hide { display:none; } .msg { font-size:13px; margin-top:10px; min-height:18px; } .ok{color:#3fb950}.err{color:#f85149}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span><h1>Nexia Print Bridge · Zebra ZC300</h1>
+  <small id="status">conectando…</small>
+</header>
+<main>
+  <div class="panel">
+    <div class="tabs">
+      <div class="tab active" data-mode="raw">Subir PNG</div>
+      <div class="tab" data-mode="template">Plantilla</div>
+      <div class="tab" data-mode="batch">Lote</div>
+    </div>
+
+    <!-- MODO RAW -->
+    <div id="raw">
+      <label>Imagen del frente (PNG/JPG — diseño completo de la tarjeta)</label>
+      <div class="drop" id="drop">Arrastra la imagen del frente o haz clic para elegir<input type="file" id="file" accept="image/png,image/jpeg" class="hide" /></div>
+    </div>
+
+    <!-- MODO PLANTILLA -->
+    <div id="template" class="hide">
+      <label>Plantilla</label>
+      <select id="tpl"><option value="credencial">credencial</option><option value="residente">residente</option><option value="cliente">cliente</option></select>
+      <label>Título (barra superior)</label><input id="titulo" value="NEXIA CONDOMINIOS" />
+      <label>Nombre</label><input id="nombre" value="Juan Garcés" />
+      <label>Subtítulo</label><input id="subtitulo" value="Residente · Torre A-301" />
+      <label>Color de marca</label><input id="colorMarca" type="color" value="#1f6feb" style="height:42px;padding:4px" />
+      <label>Foto (opcional)</label>
+      <div class="drop" id="dropFoto" style="padding:16px">Arrastra la foto<input type="file" id="fileFoto" accept="image/*" class="hide" /></div>
+    </div>
+
+    <!-- MODO LOTE: frente imagen + reverso por vehículo desde Supabase -->
+    <div id="batch" class="hide">
+      <label>Imagen del frente (misma para todas las tarjetas)</label>
+      <div class="drop" id="dropBatch">Arrastra la imagen del frente<input type="file" id="fileBatch" accept="image/png,image/jpeg" class="hide" /></div>
+      <label>Colonia</label>
+      <select id="colonia"><option value="">— cargando… —</option></select>
+      <button class="ghost" id="btnLoad" style="margin-top:10px">↻ Cargar vehículos de la colonia</button>
+      <div class="msg" id="batchInfo" style="color:var(--mut)"></div>
+      <label>Imprimir solo las primeras N (vacío = todas)</label>
+      <input id="batchLimit" type="number" min="1" placeholder="ej. 5 para prueba" />
+    </div>
+
+    <!-- REVERSO: sección COMPARTIDA — aplica al frente subido (PNG) o a la plantilla -->
+    <div id="backqr" style="border-top:1px solid var(--line);margin-top:16px;padding-top:10px">
+      <label style="font-size:13px;color:var(--txt)"><input type="checkbox" id="qrBack" style="width:auto;margin-right:6px" checked />Reverso: QR + número de casa</label>
+      <div id="qrFields">
+        <label>Dirección (URL) que codifica el QR</label><input id="qrUrl" value="https://vecinovigilante.nexiasoluciones.com.mx" />
+        <div class="row">
+          <div><label>Etiqueta</label><input id="qrEtiqueta" value="CASA" /></div>
+          <div><label>Número de casa</label><input id="qrNumero" placeholder="188" /></div>
+        </div>
+        <label>Leyenda bajo el QR</label><input id="qrLeyenda" value="Escanea para acceder" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div><label>Copias</label><input id="copies" type="number" value="1" min="1" max="50" /></div>
+      <div><label>Token</label><input id="token" value="nexia-local-dev" /></div>
+    </div>
+
+    <div id="stdActions">
+      <div class="row">
+        <button class="ghost" id="btnPreview">👁 Ver frente</button>
+        <button class="ghost" id="btnPreviewBack">👁 Ver reverso</button>
+      </div>
+      <button class="primary" id="btnPrint">🖨 Imprimir</button>
+    </div>
+    <div id="batchActions" class="hide">
+      <button class="ghost" id="btnPreviewFirst">👁 Ver primera tarjeta (frente/reverso)</button>
+      <button class="primary" id="btnPrintBatch">🖨 Imprimir lote</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="panel preview">
+    <div class="card"><img id="img" alt="preview" /></div>
+    <div class="msg" id="previewLabel" style="color:var(--mut)">Vista previa</div>
+  </div>
+</main>
+
+<script>
+let mode = 'raw'
+let fileFront = null, fileFoto = null, fileBatch = null
+let vehicles = [], coloniasLoaded = false
+
+const $ = (id) => document.getElementById(id)
+const msg = (t, cls='') => { const m = $('msg'); m.textContent = t; m.className = 'msg ' + cls }
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'))
+  t.classList.add('active'); mode = t.dataset.mode
+  $('raw').classList.toggle('hide', mode !== 'raw')
+  $('template').classList.toggle('hide', mode !== 'template')
+  $('batch').classList.toggle('hide', mode !== 'batch')
+  $('backqr').classList.toggle('hide', mode === 'batch')      // QR no aplica al lote
+  $('stdActions').classList.toggle('hide', mode === 'batch')
+  $('batchActions').classList.toggle('hide', mode !== 'batch')
+  if (mode === 'batch') loadColonias()
+})
+
+function wireDrop(dropId, inputId, onFile) {
+  const drop = $(dropId), input = $(inputId)
+  drop.onclick = () => input.click()
+  input.onchange = () => { if (input.files[0]) { onFile(input.files[0]); drop.firstChild.textContent = '✓ ' + input.files[0].name } }
+  ;['dragover','dragenter'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over') }))
+  ;['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over') }))
+  drop.addEventListener('drop', ev => { const f = ev.dataTransfer.files[0]; if (f) { onFile(f); drop.firstChild.textContent = '✓ ' + f.name } })
+}
+wireDrop('drop', 'file', f => fileFront = f)
+wireDrop('dropFoto', 'fileFoto', f => fileFoto = f)
+wireDrop('dropBatch', 'fileBatch', f => fileBatch = f)
+
+// Datos del reverso (QR + número) — compartidos por ambos modos.
+function backData() {
+  return {
+    url: $('qrUrl').value,
+    etiqueta: $('qrEtiqueta').value,
+    numero: $('qrNumero').value,
+    leyenda: $('qrLeyenda').value,
+    titulo: (mode === 'template' ? $('titulo').value : ''),
+  }
+}
+
+function buildForm() {
+  // Modo RAW: frente = imagen subida (multipart); reverso = QR generado.
+  const fd = new FormData()
+  fd.append('copies', $('copies').value)
+  fd.append('token', $('token').value)
+  if (fileFront) fd.append('png', fileFront)
+  if ($('qrBack').checked) {
+    fd.append('backTemplate', 'qr')
+    fd.append('backData', JSON.stringify(backData()))
+  }
+  return fd
+}
+
+// La foto de plantilla se manda como dataURL dentro de data (más simple que multipart anidado)
+async function buildTemplateBody() {
+  const data = {
+    titulo: $('titulo').value, nombre: $('nombre').value,
+    subtitulo: $('subtitulo').value, colorMarca: $('colorMarca').value,
+  }
+  if (fileFoto) data.foto = await toDataURL(fileFoto)
+  const body = { template: $('tpl').value, data, copies: Number($('copies').value), token: $('token').value }
+  if ($('qrBack').checked) {
+    body.backTemplate = 'qr'
+    body.backData = backData()
+  }
+  return body
+}
+$('qrFields').style.display = $('qrBack').checked ? 'block' : 'none'
+$('qrBack').onchange = () => { $('qrFields').style.display = $('qrBack').checked ? 'block' : 'none' }
+const toDataURL = (f) => new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(f) })
+
+async function send(path, side = 'front') {
+  msg('Procesando…')
+  try {
+    const url = (path === '/preview' && side === 'back') ? path + '?side=back' : path
+    let res
+    if (mode === 'raw') {
+      if (!fileFront && path === '/preview' && side === 'front') return msg('Sube la imagen del frente primero', 'err')
+      res = await fetch(url, { method:'POST', headers:{'x-print-token':$('token').value}, body: buildForm() })
+    } else {
+      const body = await buildTemplateBody()
+      res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json','x-print-token':$('token').value}, body: JSON.stringify(body) })
+    }
+    if (path === '/preview') {
+      if (!res.ok) { const j = await res.json(); return msg(j.error || 'Error', 'err') }
+      $('img').src = URL.createObjectURL(await res.blob())
+      $('previewLabel').textContent = side === 'back' ? 'Vista previa del reverso' : 'Vista previa del frente'
+      msg('Vista previa lista', 'ok')
+    } else {
+      const j = await res.json()
+      msg(j.ok ? (j.dryRun ? 'DRY_RUN: PDF generado, no impreso' : '✓ Enviado a impresión') : (j.error || 'Error'), j.ok ? 'ok' : 'err')
+    }
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+}
+$('btnPreview').onclick = () => send('/preview', 'front')
+$('btnPreviewBack').onclick = () => send('/preview', 'back')
+$('btnPrint').onclick = () => send('/print')
+
+// ---------- Modo LOTE ----------
+async function loadColonias() {
+  if (coloniasLoaded) return
+  try {
+    const j = await (await fetch('/colonias')).json()
+    if (!j.ok) return msg(j.error, 'err')
+    $('colonia').innerHTML = j.colonias.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')
+    coloniasLoaded = true
+  } catch (e) { msg('No se pudieron cargar colonias: ' + e.message, 'err') }
+}
+
+$('btnLoad').onclick = async () => {
+  const id = $('colonia').value
+  if (!id) return msg('Elige una colonia', 'err')
+  $('batchInfo').textContent = 'Cargando vehículos…'
+  try {
+    const j = await (await fetch('/vehicles?colonia=' + id)).json()
+    if (!j.ok) return msg(j.error, 'err')
+    vehicles = j.vehicles
+    $('batchInfo').textContent = `${vehicles.length} vehículos cargados`
+    msg('Vehículos cargados', 'ok')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+}
+
+function selectedRows() {
+  const lim = parseInt($('batchLimit').value, 10)
+  return (lim > 0) ? vehicles.slice(0, lim) : vehicles
+}
+
+$('btnPreviewFirst').onclick = async () => {
+  if (!vehicles.length) return msg('Carga los vehículos primero', 'err')
+  const row = vehicles[0]
+  try {
+    const res = await fetch('/preview?side=back', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ backTemplate:'vehiculo', backData: row })
+    })
+    if (!res.ok) { const j = await res.json(); return msg(j.error, 'err') }
+    $('img').src = URL.createObjectURL(await res.blob())
+    $('previewLabel').textContent = `Reverso · primera (Casa ${row.casa} · ${row.placa})`
+    msg('Vista previa de la primera tarjeta', 'ok')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+}
+
+$('btnPrintBatch').onclick = async () => {
+  if (!fileBatch) return msg('Sube la imagen del frente', 'err')
+  if (!vehicles.length) return msg('Carga los vehículos primero', 'err')
+  const rows = selectedRows()
+  if (!confirm(`¿Imprimir ${rows.length} tarjetas? Asegúrate de tener tarjetas y ribbon suficientes.`)) return
+  msg(`Imprimiendo ${rows.length}…`)
+  const fd = new FormData()
+  fd.append('png', fileBatch)
+  fd.append('rows', JSON.stringify(rows))
+  fd.append('copies', $('copies').value)
+  fd.append('token', $('token').value)
+  try {
+    const j = await (await fetch('/print-batch', { method:'POST', headers:{'x-print-token':$('token').value}, body: fd })).json()
+    msg(j.ok ? `${j.dryRun ? 'DRY_RUN: ' : '✓ '}${j.impresas}/${j.total} tarjetas${j.dryRun ? ' generadas' : ' enviadas'}` : (j.error || 'Error'), j.ok ? 'ok' : 'err')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+}
+
+fetch('/health').then(r => r.json()).then(h => {
+  $('status').textContent = `${h.printer} · ${h.ribbon}${h.dryRun ? ' · DRY_RUN' : ''}`
+}).catch(() => $('status').textContent = 'sin conexión')
+</script>
+</body>
+</html>
