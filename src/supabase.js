@@ -32,7 +32,7 @@ export async function listColonias() {
  */
 export async function listVehicles(coloniaId) {
   const select = 'id,placa,color,houses(numero,propietario),vehicle_brands(nombre),vehicle_models(nombre)'
-  const rows = await get(`vehicles?select=${select}&colonia_id=eq.${coloniaId}&order=placa`)
+  const rows = await get(`vehicles?select=${select}&colonia_id=eq.${coloniaId}&estado=eq.aprobado&order=placa`)
   return rows.map((v) => ({
     id: v.id,
     placa: v.placa || '',
