@@ -6,7 +6,9 @@ import { printCard } from './print.js'
 // una solicitud de tarjeta). Polling con QUEUE_POLL=true en .env.
 // Las RPCs print_take_jobs / print_mark_job solo las puede ejecutar service_role.
 
-const TIPO_PLANTILLA = { vehicular: 'vehiculo', peatonal: 'peatonal' }
+// La tarjeta de visita frecuente usa la misma plantilla peatonal
+// (el payload trae rotulo='VISITA FRECUENTE' y su propio QR).
+const TIPO_PLANTILLA = { vehicular: 'vehiculo', peatonal: 'peatonal', visita: 'peatonal' }
 
 function headers(extra = {}) {
   if (!config.supabaseUrl || !config.supabaseServiceKey) {
@@ -61,9 +63,11 @@ async function procesarJob(job) {
   if (!plantilla) throw new Error(`Tipo de tarjeta desconocido: ${job.tipo}`)
 
   const data = { ...job.payload }
-  // El QR peatonal se arma aquí: el payload trae profileId, el bridge la URL base.
+  // El QR se arma aquí: el payload trae el id, el bridge la URL base.
   if (job.tipo === 'peatonal' && data.profileId) {
-    data.qrUrl = `${config.defaultQrUrl}/r/${data.profileId}`
+    data.qrUrl = `${config.defaultQrUrl}/r/${data.profileId}`   // residente
+  } else if (job.tipo === 'visita' && data.cardId) {
+    data.qrUrl = `${config.defaultQrUrl}/vf/${data.cardId}`     // visita frecuente
   }
 
   const front = await frenteDeColonia(job.colonia_id)

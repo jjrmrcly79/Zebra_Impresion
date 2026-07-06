@@ -35,12 +35,12 @@ export async function peatonal({ ctx, card, data = {} }) {
   })
   ctx.drawImage(await loadImage(qrPng), qx, qy, qrSize, qrSize)
 
-  // Rótulo "ACCESO PEATONAL" arriba-izquierda
+  // Rótulo arriba-izquierda ('ACCESO PEATONAL' o 'VISITA FRECUENTE')
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.font = `${Math.round(H * 0.06)}px Arial`
   ctx.fillStyle = '#444444'
-  ctx.fillText('ACCESO PEATONAL', pad, Math.round(H * 0.1))
+  ctx.fillText(String(data.rotulo || 'ACCESO PEATONAL'), pad, Math.round(H * 0.1))
 
   // "Casa N" arriba-derecha
   if (data.casa) {
