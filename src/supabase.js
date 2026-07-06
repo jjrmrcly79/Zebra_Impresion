@@ -43,3 +43,25 @@ export async function listVehicles(coloniaId) {
     propietario: v.houses?.propietario || '',
   }))
 }
+
+const ROL_LEGIBLE = { residente: 'Residente', comite: 'Comité', guardia: 'Guardia' }
+
+/**
+ * Lista los residentes de una colonia para credenciales PEATONALES
+ * (perfiles activos y aprobados, ya aplanados para imprimir).
+ * @param {string} coloniaId
+ * @returns {Promise<Array<{id,nombre,casa,calle,rol,telefono}>>}
+ */
+export async function listResidentes(coloniaId) {
+  const select = 'id,nombre,role,telefono,houses(numero,street)'
+  const filtros = `colonia_id=eq.${coloniaId}&is_active=eq.true&approval_status=eq.aprobado&role=in.(residente,comite)`
+  const rows = await get(`profiles?select=${select}&${filtros}&order=nombre`)
+  return rows.map((p) => ({
+    id: p.id,
+    nombre: p.nombre || '',
+    casa: p.houses?.numero || '',
+    calle: p.houses?.street || '',
+    rol: ROL_LEGIBLE[p.role] || p.role || '',
+    telefono: p.telefono || '',
+  }))
+}

@@ -6,19 +6,29 @@ Corre en la Mac con la impresora (USB) y expone HTTP en `127.0.0.1`. Las apps de
 (Vecinity, nexia-tienda, etc.) le mandan JSON o un PNG y la tarjeta se imprime vía CUPS (`lp`).
 
 ## Estado del proyecto
-- **v0.1 funcional (2026-06-25)** — probado en DRY_RUN, falta primera impresión física real.
+- **v0.2 (2026-07-06)** — Ola 1 del upgrade: seguridad + tipos de credencial. En producción local (`DRY_RUN=false`).
 - ✅ Endpoints `/health`, `/preview`, `/print` (token).
 - ✅ Dos modos: plantilla (render con `@napi-rs/canvas`) y directo (sube PNG).
 - ✅ Dos caras (YMCKOK): frente + reverso = PDF de 2 páginas a CR80 (241.5×153.6 pt).
 - ✅ **Reverso con QR** (plantilla `qr`): codifica una URL (default `DEFAULT_QR_URL`), B/N para panel K.
 - ✅ Mini web local en `/` (subir PNG o usar plantilla, previsualizar frente/reverso e imprimir).
 - ✅ `/preview?side=back` para previsualizar el reverso.
-- ✅ **Impresión por LOTE desde Supabase (schema `vecino`)**: frente = 1 imagen compartida +
-  reverso por vehículo (plantilla `vehiculo`: placa + casa + marca/modelo + color). Pestaña "Lote".
-  Endpoints `/colonias`, `/vehicles?colonia=ID`, `/print-batch`. Villa Catania = 116 casas / 285 vehículos.
-  Modelo elegido: **una tarjeta por vehículo**. Campo "primeras N" + confirm para probar antes del lote completo.
-- ⬜ **Pendiente: imprimir una tarjeta física real** (poner `DRY_RUN=false` y probar con Juan).
-- ⬜ Integrar el primer consumidor (Vecinity: botón "imprimir credencial" en ficha de residente).
+- ✅ **Impresión por LOTE desde Supabase (schema `vecino`)** con **tipos de credencial**:
+  - `vehicular` → una tarjeta por vehículo (plantilla `vehiculo`: placa + casa + marca/modelo + color).
+  - `peatonal` → una tarjeta por residente (plantilla `peatonal`: nombre + casa + rol + teléfono),
+    fuente `vecino.profiles` (activos + aprobados, roles residente/comite) vía `GET /residentes?colonia=ID`.
+  - Pestaña "Lote" con selector de tipo. Villa Catania = 116 casas / 285 vehículos / 76 residentes.
+  - Campo "primeras N" + confirm para probar antes del lote completo. `POST /print-batch` con campo `tipo`.
+- ✅ **Seguridad (Ola 1, 2026-07-06)**: token rotado (ya no es el default publicado); `PRINT_TOKEN` sin
+  fallback en código (si falta en `.env`, nada responde); token exigido TAMBIÉN en `/preview`, `/colonias`,
+  `/vehicles` y `/residentes` (exponen datos de residentes); la web local ya no trae el token precargado
+  (se captura una vez y se guarda en localStorage del navegador).
+- ✅ **Higiene tmp/**: el PDF del job se borra tras mandarse a CUPS (lp ya copió el archivo); al arrancar
+  se purgan PDFs `job-*.pdf` con más de 7 días (los DRY_RUN se conservan ese periodo para revisión).
+- ✅ Multer 1.x → **2.2** (cierra deprecación/vulnerabilidad conocida). `npm audit`: 0 vulnerabilidades.
+- ⬜ **Ola 2 (aprobada, pendiente)**: lote asíncrono con progreso + cancelar; marcar impresos en BD
+  (`vecino`) para filtro "solo pendientes" y auditoría de credenciales emitidas.
+- ⬜ **Ola 3 (aprobada, pendiente)**: botón "Imprimir credencial" en Vecinity; LaunchAgent de autoarranque.
 - ⬜ Validar orientación frente/reverso real del ribbon y márgenes de sangrado.
 
 ## Stack activo
@@ -48,8 +58,10 @@ curl http://localhost:7777/health
 `POST /preview` = igual pero devuelve el PNG del frente sin imprimir.
 
 ## Notas / deuda
-- Multer 1.x marca deprecación (vuln conocida); localhost-only mitiga. Evaluar subir a 2.x.
+- ~~Multer 1.x deprecado~~ → resuelto 2026-07-06 (Multer 2.2).
 - La plantilla `credencial` es genérica; crear variantes por app en `templates/`.
+- Dependencias con major nuevo disponibles (no urgente, evaluar en Ola 2/3):
+  express 4→5, @napi-rs/canvas 0.1→1.0, pdfkit 0.15→0.19, dotenv 16→17.
 - Modelo de conexión actual: **localhost-bridge** (el operador imprime desde la Mac de la
   impresora). Si se necesita imprimir remoto → migrar a cola en Supabase Realtime (ya previsto).
 - El bridge consulta Supabase con SERVICE_ROLE_KEY **server-side** (src/supabase.js) — nunca

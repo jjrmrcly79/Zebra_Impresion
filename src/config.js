@@ -13,7 +13,8 @@ export const config = {
   printerName: process.env.PRINTER_NAME || 'Zebra_Technologies_ZTC_ZC300',
   pageSize: process.env.PAGE_SIZE || 'CR80',
   ribbon: process.env.RIBBON || '1YMCKOK',
-  printToken: process.env.PRINT_TOKEN || 'nexia-local-dev',
+  printToken: process.env.PRINT_TOKEN || '', // sin default: si falta, nada imprime
+
   dryRun: String(process.env.DRY_RUN).toLowerCase() === 'true',
   // URL que codifica el QR del reverso si la app no manda una propia.
   defaultQrUrl: process.env.DEFAULT_QR_URL || 'https://vecinovigilante.nexiasoluciones.com.mx',

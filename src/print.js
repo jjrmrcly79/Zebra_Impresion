@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { writeFile, mkdir } from 'node:fs/promises'
+import { writeFile, mkdir, unlink, readdir, stat } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -70,7 +70,29 @@ export async function printCard({ front, back, copies = 1, jobId }) {
   ]
 
   const { stdout } = await execFileP('lp', args)
-  return { jobId, pdfPath, dryRun: false, stdout: stdout.trim() }
+  // lp ya copió el archivo a la cola CUPS: el PDF local sobra (1+ MB por tarjeta).
+  await unlink(pdfPath).catch(() => {})
+  return { jobId, dryRun: false, stdout: stdout.trim() }
+}
+
+/** Borra PDFs de jobs viejos en tmp/ (los DRY_RUN se conservan unos días para revisarlos). */
+export async function purgeTmp(maxAgeDays = 7) {
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+  let removed = 0
+  try {
+    for (const name of await readdir(TMP_DIR)) {
+      if (!/^job-.*\.pdf$/.test(name)) continue
+      const full = path.join(TMP_DIR, name)
+      const info = await stat(full)
+      if (info.mtimeMs < cutoff) {
+        await unlink(full).catch(() => {})
+        removed++
+      }
+    }
+  } catch {
+    // tmp/ aún no existe — nada que limpiar
+  }
+  return removed
 }
 
 /** Verifica que la cola CUPS exista y esté disponible. */

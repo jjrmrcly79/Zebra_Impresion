@@ -60,13 +60,18 @@
       <div class="drop" id="dropFoto" style="padding:16px">Arrastra la foto<input type="file" id="fileFoto" accept="image/*" class="hide" /></div>
     </div>
 
-    <!-- MODO LOTE: frente imagen + reverso por vehículo desde Supabase -->
+    <!-- MODO LOTE: frente imagen + reverso por registro desde Supabase -->
     <div id="batch" class="hide">
+      <label>Tipo de credencial</label>
+      <select id="batchTipo">
+        <option value="vehicular">🚗 Vehicular — una tarjeta por vehículo (placa + casa)</option>
+        <option value="peatonal">🚶 Peatonal — una tarjeta por residente (nombre + casa)</option>
+      </select>
       <label>Imagen del frente (misma para todas las tarjetas)</label>
       <div class="drop" id="dropBatch">Arrastra la imagen del frente<input type="file" id="fileBatch" accept="image/png,image/jpeg" class="hide" /></div>
       <label>Colonia</label>
       <select id="colonia"><option value="">— cargando… —</option></select>
-      <button class="ghost" id="btnLoad" style="margin-top:10px">↻ Cargar vehículos de la colonia</button>
+      <button class="ghost" id="btnLoad" style="margin-top:10px">↻ Cargar registros de la colonia</button>
       <div class="msg" id="batchInfo" style="color:var(--mut)"></div>
       <label>Imprimir solo las primeras N (vacío = todas)</label>
       <input id="batchLimit" type="number" min="1" placeholder="ej. 5 para prueba" />
@@ -87,7 +92,7 @@
 
     <div class="row">
       <div><label>Copias</label><input id="copies" type="number" value="1" min="1" max="50" /></div>
-      <div><label>Token</label><input id="token" value="nexia-local-dev" /></div>
+      <div><label>Token</label><input id="token" type="password" placeholder="PRINT_TOKEN del .env" /></div>
     </div>
 
     <div id="stdActions">
@@ -113,10 +118,24 @@
 <script>
 let mode = 'raw'
 let fileFront = null, fileFoto = null, fileBatch = null
-let vehicles = [], coloniasLoaded = false
+let batchRows = [], batchRowsTipo = '', coloniasLoaded = false
 
 const $ = (id) => document.getElementById(id)
 const msg = (t, cls='') => { const m = $('msg'); m.textContent = t; m.className = 'msg ' + cls }
+
+// Token: se recuerda en este navegador (el bridge es localhost-only).
+const token = () => $('token').value.trim()
+$('token').value = localStorage.getItem('printToken') || ''
+$('token').addEventListener('change', () => localStorage.setItem('printToken', token()))
+
+// Config por tipo de credencial (lote): de dónde salen los renglones y con qué reverso.
+const BATCH_TIPOS = {
+  vehicular: { endpoint: '/vehicles',   listKey: 'vehicles',   backTemplate: 'vehiculo', unidad: 'vehículos',
+               etiqueta: (r) => `Casa ${r.casa} · ${r.placa}` },
+  peatonal:  { endpoint: '/residentes', listKey: 'residentes', backTemplate: 'peatonal', unidad: 'residentes',
+               etiqueta: (r) => `Casa ${r.casa} · ${r.nombre}` },
+}
+const tipoActual = () => BATCH_TIPOS[$('batchTipo').value]
 
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'))
@@ -215,59 +234,66 @@ $('btnPrint').onclick = () => send('/print')
 async function loadColonias() {
   if (coloniasLoaded) return
   try {
-    const j = await (await fetch('/colonias')).json()
+    const j = await (await fetch('/colonias', { headers:{'x-print-token':token()} })).json()
     if (!j.ok) return msg(j.error, 'err')
     $('colonia').innerHTML = j.colonias.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('')
     coloniasLoaded = true
   } catch (e) { msg('No se pudieron cargar colonias: ' + e.message, 'err') }
 }
 
+// Al cambiar el tipo de credencial, los renglones cargados dejan de aplicar.
+$('batchTipo').onchange = () => { batchRows = []; $('batchInfo').textContent = '' }
+
 $('btnLoad').onclick = async () => {
   const id = $('colonia').value
   if (!id) return msg('Elige una colonia', 'err')
-  $('batchInfo').textContent = 'Cargando vehículos…'
+  const tipo = tipoActual()
+  $('batchInfo').textContent = `Cargando ${tipo.unidad}…`
   try {
-    const j = await (await fetch('/vehicles?colonia=' + id)).json()
-    if (!j.ok) return msg(j.error, 'err')
-    vehicles = j.vehicles
-    $('batchInfo').textContent = `${vehicles.length} vehículos cargados`
-    msg('Vehículos cargados', 'ok')
+    const j = await (await fetch(`${tipo.endpoint}?colonia=${id}`, { headers:{'x-print-token':token()} })).json()
+    if (!j.ok) { $('batchInfo').textContent = ''; return msg(j.error, 'err') }
+    batchRows = j[tipo.listKey]
+    batchRowsTipo = $('batchTipo').value
+    $('batchInfo').textContent = `${batchRows.length} ${tipo.unidad} cargados`
+    msg(`${tipo.unidad[0].toUpperCase()}${tipo.unidad.slice(1)} cargados`, 'ok')
   } catch (e) { msg('Error: ' + e.message, 'err') }
 }
 
 function selectedRows() {
   const lim = parseInt($('batchLimit').value, 10)
-  return (lim > 0) ? vehicles.slice(0, lim) : vehicles
+  return (lim > 0) ? batchRows.slice(0, lim) : batchRows
 }
 
 $('btnPreviewFirst').onclick = async () => {
-  if (!vehicles.length) return msg('Carga los vehículos primero', 'err')
-  const row = vehicles[0]
+  const tipo = tipoActual()
+  if (!batchRows.length) return msg(`Carga los ${tipo.unidad} primero`, 'err')
+  const row = batchRows[0]
   try {
     const res = await fetch('/preview?side=back', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ backTemplate:'vehiculo', backData: row })
+      method:'POST', headers:{'Content-Type':'application/json','x-print-token':token()},
+      body: JSON.stringify({ backTemplate: tipo.backTemplate, backData: row })
     })
     if (!res.ok) { const j = await res.json(); return msg(j.error, 'err') }
     $('img').src = URL.createObjectURL(await res.blob())
-    $('previewLabel').textContent = `Reverso · primera (Casa ${row.casa} · ${row.placa})`
+    $('previewLabel').textContent = `Reverso · primera (${tipo.etiqueta(row)})`
     msg('Vista previa de la primera tarjeta', 'ok')
   } catch (e) { msg('Error: ' + e.message, 'err') }
 }
 
 $('btnPrintBatch').onclick = async () => {
+  const tipo = tipoActual()
   if (!fileBatch) return msg('Sube la imagen del frente', 'err')
-  if (!vehicles.length) return msg('Carga los vehículos primero', 'err')
+  if (!batchRows.length) return msg(`Carga los ${tipo.unidad} primero`, 'err')
   const rows = selectedRows()
-  if (!confirm(`¿Imprimir ${rows.length} tarjetas? Asegúrate de tener tarjetas y ribbon suficientes.`)) return
+  if (!confirm(`¿Imprimir ${rows.length} tarjetas (${$('batchTipo').value})? Asegúrate de tener tarjetas y ribbon suficientes.`)) return
   msg(`Imprimiendo ${rows.length}…`)
   const fd = new FormData()
   fd.append('png', fileBatch)
+  fd.append('tipo', batchRowsTipo)
   fd.append('rows', JSON.stringify(rows))
   fd.append('copies', $('copies').value)
-  fd.append('token', $('token').value)
   try {
-    const j = await (await fetch('/print-batch', { method:'POST', headers:{'x-print-token':$('token').value}, body: fd })).json()
+    const j = await (await fetch('/print-batch', { method:'POST', headers:{'x-print-token':token()}, body: fd })).json()
     msg(j.ok ? `${j.dryRun ? 'DRY_RUN: ' : '✓ '}${j.impresas}/${j.total} tarjetas${j.dryRun ? ' generadas' : ' enviadas'}` : (j.error || 'Error'), j.ok ? 'ok' : 'err')
   } catch (e) { msg('Error: ' + e.message, 'err') }
 }

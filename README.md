@@ -32,7 +32,7 @@ Subes un PNG listo y se imprime tal cual (ajustado a tamaño CR80 sin deformar).
 Desde la web local o por API:
 ```bash
 curl -X POST http://localhost:7777/print \
-  -H "x-print-token: nexia-local-dev" \
+  -H "x-print-token: $PRINT_TOKEN" \
   -F "png=@credencial.png" \
   -F "copies=1"
 ```
@@ -41,7 +41,7 @@ curl -X POST http://localhost:7777/print \
 Mandas datos y el bridge renderiza la credencial.
 ```bash
 curl -X POST http://localhost:7777/print \
-  -H "Content-Type: application/json" -H "x-print-token: nexia-local-dev" \
+  -H "Content-Type: application/json" -H "x-print-token: $PRINT_TOKEN" \
   -d '{"template":"credencial","data":{"titulo":"NEXIA CONDOMINIOS","nombre":"Juan Garcés","subtitulo":"Residente · Torre A-301","colorMarca":"#1f6feb"},"copies":1}'
 ```
 
@@ -54,29 +54,41 @@ sale de `DEFAULT_QR_URL` en `.env`.
 
 ## Impresión por lote (desde Supabase, schema `vecino`)
 Para muchas tarjetas con el **mismo frente** y un reverso distinto por registro.
-Modelo actual: **una tarjeta por vehículo** (placa + casa + marca/modelo + color, plantilla `vehiculo`).
+Hay **dos tipos de credencial**:
+
+| Tipo | Una tarjeta por | Reverso (plantilla) | Fuente |
+|------|----------------|---------------------|--------|
+| `vehicular` | vehículo | `vehiculo`: placa + casa + marca/modelo + color | `vecino.vehicles` |
+| `peatonal` | residente | `peatonal`: nombre + casa + rol + teléfono | `vecino.profiles` (activos y aprobados) |
 
 Pestaña **"Lote"** en la web local:
-1. Subes la imagen del frente (1 sola, compartida).
-2. Eliges la colonia (se cargan de Supabase) → "Cargar vehículos".
-3. "Ver primera tarjeta" para validar el diseño.
-4. Campo **"primeras N"** para probar con 1 antes del lote completo → "Imprimir lote".
+1. Eliges el **tipo de credencial** (vehicular / peatonal).
+2. Subes la imagen del frente (1 sola, compartida).
+3. Eliges la colonia (se cargan de Supabase) → "Cargar registros".
+4. "Ver primera tarjeta" para validar el diseño.
+5. Campo **"primeras N"** para probar con 1 antes del lote completo → "Imprimir lote".
 
-Endpoints: `GET /colonias`, `GET /vehicles?colonia=ID`, `POST /print-batch` (frente `png` + `rows` JSON).
+Endpoints: `GET /colonias`, `GET /vehicles?colonia=ID`, `GET /residentes?colonia=ID`,
+`POST /print-batch` (frente `png` + `tipo` + `rows` JSON). **Todos exigen `x-print-token`.**
 El bridge lee Supabase con `SUPABASE_SERVICE_ROLE_KEY` **server-side** (nunca al navegador),
 con header `Accept-Profile: vecino`.
 
 ## Plantillas disponibles
 `templates/index.js` registra: `credencial` (gafete con foto), `residente`/`cliente` (alias),
-`qr` (reverso con QR + número), `vehiculo` (reverso por vehículo). Agregar nuevas ahí.
+`qr` (reverso con QR + número), `vehiculo` (reverso por vehículo), `peatonal` (reverso por
+residente, acceso peatonal). Agregar nuevas ahí.
 
 ## Endpoints
-| Método | Ruta | Qué hace |
-|--------|------|----------|
-| GET | `/health` | Estado del bridge y de la impresora |
-| POST | `/preview` | Devuelve el PNG del frente **sin imprimir** (para mostrar en la app) |
-| POST | `/print` | Imprime (requiere header `x-print-token`) |
-| GET | `/` | Página web local: subir PNG o usar plantilla |
+| Método | Ruta | Token | Qué hace |
+|--------|------|:-----:|----------|
+| GET | `/health` | — | Estado del bridge y de la impresora |
+| POST | `/preview` | ✓ | Devuelve el PNG de una cara **sin imprimir** (`?side=back` para el reverso) |
+| POST | `/print` | ✓ | Imprime una tarjeta (1 o 2 caras) |
+| GET | `/colonias` | ✓ | Colonias disponibles (Supabase) |
+| GET | `/vehicles?colonia=ID` | ✓ | Vehículos para lote vehicular |
+| GET | `/residentes?colonia=ID` | ✓ | Residentes para lote peatonal |
+| POST | `/print-batch` | ✓ | Lote: frente compartido + reverso por registro según `tipo` |
+| GET | `/` | — | Página web local (el token se captura ahí y se recuerda en el navegador) |
 
 ## Cómo lo consume otra app (Vecinity / nexia-tienda)
 La app arma el JSON (datos del residente/cliente + foto) y hace `POST http://localhost:7777/print`.
