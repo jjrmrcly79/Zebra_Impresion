@@ -15,8 +15,11 @@ Corre en la Mac con la impresora (USB) y expone HTTP en `127.0.0.1`. Las apps de
 - ✅ `/preview?side=back` para previsualizar el reverso.
 - ✅ **Impresión por LOTE desde Supabase (schema `vecino`)** con **tipos de credencial**:
   - `vehicular` → una tarjeta por vehículo (plantilla `vehiculo`: placa + casa + marca/modelo + color).
-  - `peatonal` → una tarjeta por residente (plantilla `peatonal`: nombre + casa + rol + teléfono),
-    fuente `vecino.profiles` (activos + aprobados, roles residente/comite) vía `GET /residentes?colonia=ID`.
+  - `peatonal` → una tarjeta por residente (plantilla `peatonal`: nombre + casa + rol + teléfono +
+    **placas de los vehículos aprobados de su casa** + **QR único** que codifica
+    `DEFAULT_QR_URL/r/<profile_id>`), fuente `vecino.profiles` (activos + aprobados, roles
+    residente/comite) vía `GET /residentes?colonia=ID`.
+  - El lote vehicular y las placas del reverso peatonal solo incluyen vehículos `estado=aprobado`.
   - Pestaña "Lote" con selector de tipo. Villa Catania = 116 casas / 285 vehículos / 76 residentes.
   - Campo "primeras N" + confirm para probar antes del lote completo. `POST /print-batch` con campo `tipo`.
 - ✅ **Seguridad (Ola 1, 2026-07-06)**: token rotado (ya no es el default publicado); `PRINT_TOKEN` sin
@@ -28,7 +31,12 @@ Corre en la Mac con la impresora (USB) y expone HTTP en `127.0.0.1`. Las apps de
 - ✅ Multer 1.x → **2.2** (cierra deprecación/vulnerabilidad conocida). `npm audit`: 0 vulnerabilidades.
 - ⬜ **Ola 2 (aprobada, pendiente)**: lote asíncrono con progreso + cancelar; marcar impresos en BD
   (`vecino`) para filtro "solo pendientes" y auditoría de credenciales emitidas.
-- ⬜ **Ola 3 (aprobada, pendiente)**: botón "Imprimir credencial" en Vecinity; LaunchAgent de autoarranque.
+- ⬜ **Ola 3 (aprobada, pendiente)**: botón "Imprimir credencial" en Vecinity; LaunchAgent de autoarranque;
+  el escáner de caseta (vigilancia/page.tsx) debe aprender a resolver `/r/<profile_id>` — hoy solo
+  entiende `/visita/<token>` (el QR de las tarjetas peatonales ya lo codifica, listo para esto).
+- ⬜ **Foto del residente en la credencial** — GATEADO por dato: `vecino.profiles.avatar` guarda
+  INICIALES ("JO"), no fotos. Requiere que Vecinity capture foto de perfil primero. La plantilla
+  `credencial` (frente con foto) ya lo soporta cuando exista el dato.
 - ⬜ Validar orientación frente/reverso real del ribbon y márgenes de sangrado.
 
 ## Stack activo

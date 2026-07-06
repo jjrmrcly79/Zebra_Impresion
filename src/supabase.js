@@ -49,13 +49,23 @@ const ROL_LEGIBLE = { residente: 'Residente', comite: 'Comité', guardia: 'Guard
 /**
  * Lista los residentes de una colonia para credenciales PEATONALES
  * (perfiles activos y aprobados, ya aplanados para imprimir).
+ * Incluye las placas de los vehículos aprobados de su casa y la URL
+ * que codifica el QR de la tarjeta (única por residente).
  * @param {string} coloniaId
- * @returns {Promise<Array<{id,nombre,casa,calle,rol,telefono}>>}
+ * @returns {Promise<Array<{id,nombre,casa,calle,rol,telefono,placas,qrUrl}>>}
  */
 export async function listResidentes(coloniaId) {
-  const select = 'id,nombre,role,telefono,houses(numero,street)'
+  const select = 'id,nombre,role,telefono,house_id,houses(numero,street)'
   const filtros = `colonia_id=eq.${coloniaId}&is_active=eq.true&approval_status=eq.aprobado&role=in.(residente,comite)`
-  const rows = await get(`profiles?select=${select}&${filtros}&order=nombre`)
+  const [rows, vehiculos] = await Promise.all([
+    get(`profiles?select=${select}&${filtros}&order=nombre`),
+    get(`vehicles?select=house_id,placa&colonia_id=eq.${coloniaId}&estado=eq.aprobado&order=placa`),
+  ])
+  const placasPorCasa = {}
+  for (const v of vehiculos) {
+    if (!v.house_id || !v.placa) continue
+    ;(placasPorCasa[v.house_id] ||= []).push(v.placa)
+  }
   return rows.map((p) => ({
     id: p.id,
     nombre: p.nombre || '',
@@ -63,5 +73,9 @@ export async function listResidentes(coloniaId) {
     calle: p.houses?.street || '',
     rol: ROL_LEGIBLE[p.role] || p.role || '',
     telefono: p.telefono || '',
+    placas: placasPorCasa[p.house_id] || [],
+    // Única por residente. El escáner de caseta (Vecinity) debe aprender a
+    // resolver /r/<profile_id> — hoy solo entiende /visita/<token> (Ola 3).
+    qrUrl: `${config.defaultQrUrl}/r/${p.id}`,
   }))
 }

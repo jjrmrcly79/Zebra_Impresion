@@ -59,7 +59,7 @@ Hay **dos tipos de credencial**:
 | Tipo | Una tarjeta por | Reverso (plantilla) | Fuente |
 |------|----------------|---------------------|--------|
 | `vehicular` | vehículo | `vehiculo`: placa + casa + marca/modelo + color | `vecino.vehicles` |
-| `peatonal` | residente | `peatonal`: nombre + casa + rol + teléfono | `vecino.profiles` (activos y aprobados) |
+| `peatonal` | residente | `peatonal`: nombre + casa + rol + teléfono + **placas de la casa** + **QR único** (`/r/<profile_id>`) | `vecino.profiles` (activos y aprobados) |
 
 Pestaña **"Lote"** en la web local:
 1. Eliges el **tipo de credencial** (vehicular / peatonal).
