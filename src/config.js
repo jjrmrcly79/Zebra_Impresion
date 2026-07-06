@@ -21,4 +21,9 @@ export const config = {
   // Supabase (impresión por lote desde schema vecino). Server-side, nunca al navegador.
   supabaseUrl: process.env.SUPABASE_URL || '',
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  // Modo COLA: consumir vecino.print_jobs (creados por Vecinity al aprobar tarjetas).
+  queuePoll: String(process.env.QUEUE_POLL).toLowerCase() === 'true',
+  queueIntervalMs: Number(process.env.QUEUE_INTERVAL_MS) || 10000,
+  // Imagen local del frente cuando la colonia no tiene tarjeta_frente_url.
+  frontImagePath: process.env.FRONT_IMAGE || '',
 }

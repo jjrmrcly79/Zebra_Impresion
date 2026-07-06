@@ -7,6 +7,7 @@ import { renderTemplate, renderRaw } from './src/render.js'
 import { printCard, printerStatus, purgeTmp } from './src/print.js'
 import { templates } from './templates/index.js'
 import { listColonias, listVehicles, listResidentes } from './src/supabase.js'
+import { startQueueWorker } from './src/queue.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -75,6 +76,7 @@ app.get('/health', async (_req, res) => {
     pageSize: config.pageSize,
     ribbon: config.ribbon,
     dryRun: config.dryRun,
+    queue: config.queuePoll,
     templates: Object.keys(templates),
     printerStatus: printer,
   })
@@ -170,4 +172,7 @@ app.listen(config.port, '127.0.0.1', async () => {
   console.log(`Impresora: ${config.printerName} · ${config.pageSize} · ribbon ${config.ribbon}${config.dryRun ? ' · DRY_RUN' : ''}`)
   const purged = await purgeTmp()
   if (purged) console.log(`tmp/: ${purged} PDF(s) de jobs viejos eliminados`)
+  if (startQueueWorker()) {
+    console.log(`Cola Vecinity activa: barrido cada ${config.queueIntervalMs / 1000}s (vecino.print_jobs)`)
+  }
 })

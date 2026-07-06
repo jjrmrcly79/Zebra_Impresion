@@ -6,6 +6,13 @@ Corre en la Mac con la impresora (USB) y expone HTTP en `127.0.0.1`. Las apps de
 (Vecinity, nexia-tienda, etc.) le mandan JSON o un PNG y la tarjeta se imprime vía CUPS (`lp`).
 
 ## Estado del proyecto
+- **v0.3 (2026-07-06)** — MODO COLA: el bridge es ahora el agente de impresión del módulo
+  **Credenciales de Vecinity**. Con `QUEUE_POLL=true` barre `vecino.print_jobs` cada 10s
+  (RPCs `print_take_jobs`/`print_mark_job`, solo service_role), imprime y marca estados;
+  el frente sale de `colonias.tarjeta_frente_url` o `FRONT_IMAGE` local; el QR peatonal se
+  arma aquí (`DEFAULT_QR_URL/r/<profileId>`). La mini-web queda como fallback/pruebas.
+  E2E verificado (job → tarjeta DRY_RUN → estado impresa → stock descontado).
+  ⏳ Activar poniendo `QUEUE_POLL=true` en `.env` (hoy está apagado).
 - **v0.2 (2026-07-06)** — Ola 1 del upgrade: seguridad + tipos de credencial. En producción local (`DRY_RUN=false`).
 - ✅ Endpoints `/health`, `/preview`, `/print` (token).
 - ✅ Dos modos: plantilla (render con `@napi-rs/canvas`) y directo (sube PNG).

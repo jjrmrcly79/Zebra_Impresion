@@ -90,7 +90,19 @@ residente, acceso peatonal). Agregar nuevas ahí.
 | POST | `/print-batch` | ✓ | Lote: frente compartido + reverso por registro según `tipo` |
 | GET | `/` | — | Página web local (el token se captura ahí y se recuerda en el navegador) |
 
-## Cómo lo consume otra app (Vecinity / nexia-tienda)
+## Cómo lo consume otra app
+
+### Modo COLA (recomendado — módulo Credenciales de Vecinity)
+Vecinity inserta trabajos en `vecino.print_jobs` (al aprobar el comité una solicitud de
+tarjeta) y el bridge los consume solo. Activar con `QUEUE_POLL=true` en `.env`:
+el bridge barre la cola cada 10s (`QUEUE_INTERVAL_MS`), imprime y marca
+`imprimiendo → impresa / error` (con reintento desde la UI del comité).
+- Frente de la tarjeta: `colonias.tarjeta_frente_url` (imagen compartida) o `FRONT_IMAGE` local.
+- El QR peatonal se arma aquí: `DEFAULT_QR_URL/r/<profileId>`.
+- Se puede imprimir "desde el celular": el comité aprueba en Vecinity y la tarjeta
+  sale en esta Mac cuando esté encendida con el bridge activo.
+
+### Modo directo (fallback / pruebas)
 La app arma el JSON (datos del residente/cliente + foto) y hace `POST http://localhost:7777/print`.
 El navegador del operador debe estar en la **misma Mac** que la impresora (modelo localhost-bridge).
 
