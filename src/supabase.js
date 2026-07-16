@@ -34,15 +34,18 @@ const JOB_COLS = 'id,colonia_id,card_request_id,tipo,payload,estado,attempts,err
 const SOL_COLS = 'id,colonia_id,tipo,estado,pago_estado,es_incluida,personalizada,costo_estimado,created_at,delivered_at,print_job_id,beneficiario_nombre,' +
   'vehicle:vehicles(placa),beneficiario:profiles!card_requests_beneficiario_profile_id_fkey(nombre),house:houses(numero)'
 
-/** Cola activa + historial reciente + solicitudes (pipeline) + colonias con stock. */
+/** Cola activa + historial + solicitudes (pipeline) + colonias + inventario de
+ *  seriales + entregas firmadas. La firma (columna pesada) NUNCA se lista. */
 export async function listQueueData() {
-  const [activos, historial, solicitudes, colonias] = await Promise.all([
+  const [activos, historial, solicitudes, colonias, inventario, entregas] = await Promise.all([
     get(`print_jobs?select=${JOB_COLS}&estado=in.(pendiente,imprimiendo,error)&order=created_at`),
     get(`print_jobs?select=${JOB_COLS}&estado=eq.impresa&order=printed_at.desc&limit=300`),
     get(`card_requests?select=${SOL_COLS}&estado=in.(solicitada,en_cola,impresa,entregada)&order=created_at.desc&limit=1000`),
     get('colonias?select=id,nombre,stock_tarjetas&order=nombre'),
+    get('card_inventory?select=colonia_id,serial,orden,estado,print_job_id&order=orden&limit=5000'),
+    get('card_deliveries?select=print_job_id,firmante,delivered_at&limit=2000'),
   ])
-  return { activos, historial, solicitudes, colonias }
+  return { activos, historial, solicitudes, colonias, inventario, entregas }
 }
 
 /** Un job por id (para reimprimir / previsualizar). */

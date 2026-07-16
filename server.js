@@ -240,6 +240,34 @@ app.post('/queue/auto', requireToken, (req, res) => {
   res.json({ ok: true, auto: setQueueAuto(!!req.body?.on) })
 })
 
+// Registra un LOTE de tarjetas físicas numeradas, en el orden del paquete
+// (desde → hasta, ascendente o descendente). Los seriales se asignan al imprimir.
+app.post('/queue/lote', requireToken, async (req, res) => {
+  const { coloniaId, desde, hasta } = req.body || {}
+  if (!coloniaId || !/^\d+$/.test(String(desde)) || !/^\d+$/.test(String(hasta))) {
+    return res.status(400).json({ ok: false, error: 'Manda coloniaId, desde y hasta (números de serie)' })
+  }
+  try {
+    const r = await queueRpc('print_registrar_lote', {
+      p_colonia: coloniaId, p_desde: Number(desde), p_hasta: Number(hasta),
+    })
+    res.json({ ok: true, ...r })
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message })
+  }
+})
+
+// Marca la SIGUIENTE tarjeta física del paquete como dañada (atorada/mal impresa).
+app.post('/queue/danada', requireToken, async (req, res) => {
+  if (!req.body?.coloniaId) return res.status(400).json({ ok: false, error: 'Manda coloniaId' })
+  try {
+    const r = await queueRpc('print_marcar_danada', { p_colonia: req.body.coloniaId, p_serial: req.body.serial || null })
+    res.json({ ok: true, ...r })
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message })
+  }
+})
+
 // Actualiza el stock físico de tarjetas de una colonia (llegaron más).
 app.post('/queue/stock', requireToken, async (req, res) => {
   const { coloniaId, stock } = req.body || {}

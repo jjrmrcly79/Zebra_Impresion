@@ -162,6 +162,33 @@ function render() {
 }
 
 const nombreColonia = (id) => data.colonias.find(c => c.id === id)?.nombre || 'Villa'
+const invDe = (cid) => (data.inventario || []).filter(i => i.colonia_id === cid)
+const serialDeJob = (jobId) => (data.inventario || []).find(i => i.print_job_id === jobId)?.serial || null
+const entregaDeJob = (jobId) => (data.entregas || []).find(e => e.print_job_id === jobId) || null
+
+/** Chips de inventario/stock de la cabecera de villa. */
+function stockChips(cid, enCola = 0) {
+  const inv = invDe(cid)
+  const col = data.colonias.find(c => c.id === cid) || {}
+  if (!inv.length) {
+    const stock = col.stock_tarjetas ?? 0
+    return `<span class="badge ${stock >= enCola ? 'stock-ok' : 'stock-low'}">stock: ${stock} tarjetas</span>
+      <button class="iconbtn" data-lote="${cid}">+ lote</button>
+      <button class="iconbtn" data-stock="${cid}">± stock</button>`
+  }
+  const disp = inv.filter(i => i.estado === 'disponible')
+  const sig = disp[0]?.serial
+  return `<span class="badge ${disp.length >= enCola ? 'stock-ok' : 'stock-low'}">stock: ${disp.length} tarjetas</span>
+    ${sig ? `<span class="badge" title="La tarjeta de arriba del paquete — su serial se asigna a la siguiente impresión">siguiente S/N: ${esc(sig)}</span>` : ''}
+    <button class="iconbtn" data-lote="${cid}">+ lote</button>
+    ${sig ? `<button class="iconbtn" data-dan="${cid}" title="La tarjeta de arriba salió dañada (atorada/mal impresa)">⚠ dañada</button>` : ''}`
+}
+
+function wireStockBtns(cont) {
+  cont.querySelectorAll('button[data-stock]').forEach(b => b.onclick = () => editarStock(b.dataset.stock))
+  cont.querySelectorAll('button[data-lote]').forEach(b => b.onclick = () => registrarLote(b.dataset.lote))
+  cont.querySelectorAll('button[data-dan]').forEach(b => b.onclick = () => marcarDanada(b.dataset.dan))
+}
 
 function renderCola() {
   const cont = $('vistaCola')
@@ -174,8 +201,6 @@ function renderCola() {
 
   cont.innerHTML = Object.entries(porColonia).map(([cid, jobs]) => {
     const col = data.colonias.find(c => c.id === cid) || {}
-    const stock = col.stock_tarjetas ?? 0
-    const stockCls = stock >= jobs.length ? 'stock-ok' : 'stock-low'
     const seleccionables = jobs.filter(j => j.estado !== 'imprimiendo')
     const todos = seleccionables.length && seleccionables.every(j => seleccion.has(j.id))
     return `<div class="panel">
@@ -183,8 +208,7 @@ function renderCola() {
         <input type="checkbox" data-col="${cid}" ${todos ? 'checked' : ''} title="Seleccionar toda la villa" />
         <h2>${esc(col.nombre || 'Villa')}</h2>
         <span class="badge">${jobs.length} en cola</span>
-        <span class="badge ${stockCls}">stock: ${stock} tarjetas</span>
-        <button class="iconbtn" data-stock="${cid}">± stock</button>
+        ${stockChips(cid, jobs.length)}
       </div>
       ${jobs.map(j => `<div class="job">
         <input type="checkbox" data-id="${j.id}" ${seleccion.has(j.id) ? 'checked' : ''} ${j.estado === 'imprimiendo' ? 'disabled' : ''} />
@@ -211,7 +235,7 @@ function renderCola() {
     renderCola(); syncPrintBtn()
   })
   cont.querySelectorAll('button[data-pv]').forEach(b => b.onclick = () => openPreview(b.dataset.pv))
-  cont.querySelectorAll('button[data-stock]').forEach(b => b.onclick = () => editarStock(b.dataset.stock))
+  wireStockBtns(cont)
 }
 
 // --- Solicitudes: el pipeline COMPLETO por villa (incluye lo que aún no llega
@@ -273,17 +297,20 @@ function renderSol() {
  *  job — p. ej. los lotes manuales previos a la consola). */
 function historialFusionado() {
   const jobIds = new Set(data.historial.map(j => j.id))
-  const entregadaPorJob = new Map((data.solicitudes || [])
-    .filter(s => s.estado === 'entregada' && s.print_job_id)
-    .map(s => [s.print_job_id, s]))
 
-  const delSistema = data.historial.map(j => ({
-    id: j.id, reimprimible: true, tipo: j.tipo, colonia_id: j.colonia_id,
-    titulo: etiqueta(j), casa: j.payload?.casa,
-    blanca: j.payload?.personalizada === false && j.tipo === 'vehicular',
-    entregada: entregadaPorJob.has(j.id),
-    cuando: j.printed_at, nota: `impresa ${fecha(j.printed_at)}`,
-  }))
+  const delSistema = data.historial.map(j => {
+    const firma = entregaDeJob(j.id)   // entrega FIRMADA (la verdad física)
+    const serial = serialDeJob(j.id)
+    return {
+      id: j.id, reimprimible: true, tipo: j.tipo, colonia_id: j.colonia_id,
+      titulo: etiqueta(j), casa: j.payload?.casa,
+      blanca: j.payload?.personalizada === false && j.tipo === 'vehicular',
+      entregada: !!firma, porEntregar: !firma,
+      cuando: j.printed_at,
+      nota: `impresa ${fecha(j.printed_at)}${serial ? ` · S/N ${serial}` : ''}` +
+            (firma ? ` · recibió ${firma.firmante} ✍︎ ${fecha(firma.delivered_at)}` : ''),
+    }
+  })
   const historicas = (data.solicitudes || [])
     .filter(s => s.estado === 'entregada' && (!s.print_job_id || !jobIds.has(s.print_job_id)))
     .map(s => ({
@@ -310,6 +337,7 @@ function renderHist() {
       </div>
       ${r.blanca ? '<span class="badge blanca">BLANCA</span>' : ''}
       ${r.entregada ? '<span class="badge stock-ok">entregada</span>' : ''}
+      ${r.porEntregar ? '<span class="badge imprimiendo" title="Impresa pero el vecino aún no firma de recibido">por entregar</span>' : ''}
       ${r.reimprimible && !r.blanca ? `<button class="iconbtn" data-pv="${r.id}">👁</button>` : ''}
       ${r.reimprimible ? `<button class="iconbtn" data-re="${r.id}">↻ Reimprimir</button>`
                        : `<button class="iconbtn" data-req="${r.id}">↻ Reimprimir</button>`}
@@ -342,8 +370,10 @@ $('btnPrint').onclick = async () => {
     if (!j.ok) return msg(j.error || 'Error', 'err')
     const okN = j.results.filter(r => r.ok).length
     const errs = j.results.filter(r => !r.ok)
+    const seriales = j.results.filter(r => r.serial).map(r => `${r.tarjeta}→${r.serial}`)
     seleccion.clear()
     msg(`${j.dryRun ? 'DRY_RUN: ' : '✓ '}${okN}/${j.results.length} listas` +
+        (seriales.length ? ` · S/N: ${seriales.join(', ')}` : '') +
         (errs.length ? ` · errores: ${errs.map(e => e.tarjeta).join(', ')}` : ''), errs.length ? 'err' : 'ok')
   } catch (e) { msg('Error: ' + e.message, 'err') }
   finally { ocupado = false; load() }
@@ -360,6 +390,38 @@ async function reimprimir(id) {
     msg(r.ok ? `${r.dryRun ? 'DRY_RUN: ' : '✓ '}reimpresa "${r.tarjeta}"${r.blanca ? ' (blanca: entrégala del stock)' : ''}` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
   } catch (e) { msg('Error: ' + e.message, 'err') }
   finally { ocupado = false; load() }
+}
+
+// Registrar un lote de tarjetas físicas numeradas, EN EL ORDEN del paquete.
+async function registrarLote(cid) {
+  const col = data.colonias.find(c => c.id === cid)
+  const desde = prompt(`Lote de ${col?.nombre || 'la villa'} — serial de la PRIMERA tarjeta del paquete (la de arriba):`)
+  if (desde === null || !/^\d+$/.test(desde.trim())) return desde === null ? null : msg('Serial inválido', 'err')
+  const hasta = prompt('Serial de la ÚLTIMA tarjeta del paquete (la de abajo):')
+  if (hasta === null || !/^\d+$/.test(hasta.trim())) return hasta === null ? null : msg('Serial inválido', 'err')
+  const n = Math.abs(Number(hasta) - Number(desde)) + 1
+  if (!confirm(`Registrar ${n} tarjetas (${desde.trim()} → ${hasta.trim()}) para ${col?.nombre}. La primera en imprimirse será la ${desde.trim()}. ¿Correcto?`)) return
+  try {
+    const r = await (await fetch('/queue/lote', {
+      method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ coloniaId: cid, desde: desde.trim(), hasta: hasta.trim() }),
+    })).json()
+    msg(r.ok ? `✓ ${r.agregadas} tarjetas registradas · ${r.disponibles} disponibles` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+  load()
+}
+
+// La tarjeta de arriba del paquete salió dañada: se descarta su serial.
+async function marcarDanada(cid) {
+  const sig = invDe(cid).filter(i => i.estado === 'disponible')[0]?.serial
+  if (!confirm(`¿Marcar como DAÑADA la tarjeta de arriba del paquete (S/N ${sig})? Su serial se descarta del inventario.`)) return
+  try {
+    const r = await (await fetch('/queue/danada', {
+      method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify({ coloniaId: cid }),
+    })).json()
+    msg(r.ok ? `✓ S/N ${r.serial} descartada · quedan ${r.disponibles}` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+  load()
 }
 
 // Reimpresión de una tarjeta HISTÓRICA (impresa fuera del sistema): se re-encola

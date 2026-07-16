@@ -116,10 +116,11 @@ export async function imprimirYMarcar(job, { jobIdPrefix = 'queue' } = {}) {
   const etiqueta = etiquetaDelJob(job)
   try {
     const r = await procesarJob(job, { jobIdPrefix })
-    await rpc('print_mark_job', { p_id: job.id, p_ok: true })
+    const marca = await rpc('print_mark_job', { p_id: job.id, p_ok: true })
+    const serial = marca?.serial || null
     const modo = r.blanca ? 'BLANCA (entregar sin imprimir)' : r.dryRun ? 'generada (DRY_RUN)' : 'impresa'
-    console.log(`Cola: tarjeta ${job.tipo} "${etiqueta}" ${modo}`)
-    return { id: job.id, tarjeta: etiqueta, tipo: job.tipo, ok: true, blanca: !!r.blanca, dryRun: !!r.dryRun }
+    console.log(`Cola: tarjeta ${job.tipo} "${etiqueta}" ${modo}${serial ? ` · S/N ${serial}` : ''}`)
+    return { id: job.id, tarjeta: etiqueta, tipo: job.tipo, ok: true, blanca: !!r.blanca, dryRun: !!r.dryRun, serial }
   } catch (err) {
     // El fallo de UNA tarjeta no tumba el ciclo: se marca error y sigue.
     console.error(`Cola: error en "${etiqueta}": ${err.message}`)
