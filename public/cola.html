@@ -311,11 +311,13 @@ function renderHist() {
       ${r.blanca ? '<span class="badge blanca">BLANCA</span>' : ''}
       ${r.entregada ? '<span class="badge stock-ok">entregada</span>' : ''}
       ${r.reimprimible && !r.blanca ? `<button class="iconbtn" data-pv="${r.id}">👁</button>` : ''}
-      ${r.reimprimible ? `<button class="iconbtn" data-re="${r.id}">↻ Reimprimir</button>` : ''}
+      ${r.reimprimible ? `<button class="iconbtn" data-re="${r.id}">↻ Reimprimir</button>`
+                       : `<button class="iconbtn" data-req="${r.id}">↻ Reimprimir</button>`}
     </div>`).join('')}</div>`
     : '<div class="panel"><div class="empty">Sin tarjetas impresas ni entregadas' + (f ? ' con ese filtro' : ' todavía') + '.</div></div>'
 
   $('histList').querySelectorAll('button[data-re]').forEach(b => b.onclick = () => reimprimir(b.dataset.re))
+  $('histList').querySelectorAll('button[data-req]').forEach(b => b.onclick = () => reencolar(b.dataset.req))
   $('histList').querySelectorAll('button[data-pv]').forEach(b => b.onclick = () => openPreview(b.dataset.pv))
 }
 $('filtroHist').oninput = renderHist
@@ -358,6 +360,21 @@ async function reimprimir(id) {
     msg(r.ok ? `${r.dryRun ? 'DRY_RUN: ' : '✓ '}reimpresa "${r.tarjeta}"${r.blanca ? ' (blanca: entrégala del stock)' : ''}` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
   } catch (e) { msg('Error: ' + e.message, 'err') }
   finally { ocupado = false; load() }
+}
+
+// Reimpresión de una tarjeta HISTÓRICA (impresa fuera del sistema): se re-encola
+// con los datos vivos de la BD y aparece en "Por imprimir" para seleccionarla.
+async function reencolar(requestId) {
+  const s = (data.solicitudes || []).find(x => x.id === requestId)
+  const quien = s ? titularSol(s) : 'la tarjeta'
+  if (!confirm(`¿Re-encolar la tarjeta de "${quien}"? Aparecerá en "Por imprimir" con los datos actuales de la BD.`)) return
+  try {
+    const r = await (await fetch('/queue/requeue', {
+      method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify({ requestId }),
+    })).json()
+    msg(r.ok ? `✓ "${quien}" re-encolada — está en Por imprimir` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+  load()
 }
 
 async function editarStock(cid) {

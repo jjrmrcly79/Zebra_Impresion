@@ -208,13 +208,26 @@ app.post('/queue/reprint', requireToken, async (req, res) => {
   }
 })
 
+// Re-encola una tarjeta histórica (card_request impresa/entregada sin job):
+// crea un print_job nuevo con el payload armado en BD y aparece en "Por imprimir".
+app.post('/queue/requeue', requireToken, async (req, res) => {
+  const requestId = req.body?.requestId
+  if (!requestId) return res.status(400).json({ ok: false, error: 'Manda "requestId"' })
+  try {
+    const r = await queueRpc('print_encolar_reimpresion', { p_request_id: requestId })
+    res.json({ ok: true, job: r?.job })
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message })
+  }
+})
+
 // Vista previa de un job de la cola (?side=front | back, default back).
 app.get('/queue/preview/:id', requireToken, async (req, res) => {
   try {
     const job = await getPrintJob(req.params.id)
     if (!job) return res.status(404).json({ ok: false, error: 'Job inexistente' })
     const img = req.query.side === 'front'
-      ? await frenteDeColonia(job.colonia_id)
+      ? await frenteDeColonia(job.colonia_id, job.tipo)
       : await renderReversoJob(job)
     res.type('image/png').send(img)
   } catch (err) {

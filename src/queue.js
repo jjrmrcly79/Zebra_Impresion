@@ -30,24 +30,33 @@ export async function rpc(fn, args = {}) {
     headers: headers({ 'Content-Profile': 'vecino' }), // RPC en schema vecino
     body: JSON.stringify(args),
   })
-  if (!res.ok) throw new Error(`RPC ${fn} → ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    const txt = await res.text()
+    let msg = txt
+    try { msg = JSON.parse(txt).message || txt } catch { /* texto plano */ }
+    throw new Error(`RPC ${fn}: ${msg}`)
+  }
   return res.json()
 }
 
-// Frente compartido por colonia: 1º la imagen configurada en la colonia
-// (tarjeta_frente_url), si no hay, FRONT_IMAGE local del .env. Cacheado.
+// Frente compartido por colonia Y por tipo: visita tiene su propio diseño
+// (tarjeta_frente_visita_url) y cae al general (tarjeta_frente_url) si no hay.
+// Fallback final: FRONT_IMAGE local del .env. Cacheado por colonia+tipo.
 const frenteCache = new Map()
-export async function frenteDeColonia(coloniaId) {
-  if (frenteCache.has(coloniaId)) return frenteCache.get(coloniaId)
+export async function frenteDeColonia(coloniaId, tipo = '') {
+  const esVisita = tipo === 'visita'
+  const cacheKey = `${coloniaId}:${esVisita ? 'visita' : 'std'}`
+  if (frenteCache.has(cacheKey)) return frenteCache.get(cacheKey)
 
   let buf = null
   const res = await fetch(
-    `${config.supabaseUrl}/rest/v1/colonias?id=eq.${coloniaId}&select=tarjeta_frente_url`,
+    `${config.supabaseUrl}/rest/v1/colonias?id=eq.${coloniaId}&select=tarjeta_frente_url,tarjeta_frente_visita_url`,
     { headers: headers({ 'Accept-Profile': 'vecino' }) }
   )
   const [colonia] = res.ok ? await res.json() : []
-  if (colonia?.tarjeta_frente_url) {
-    const img = await fetch(colonia.tarjeta_frente_url)
+  const url = (esVisita && colonia?.tarjeta_frente_visita_url) || colonia?.tarjeta_frente_url
+  if (url) {
+    const img = await fetch(url)
     if (!img.ok) throw new Error(`No se pudo descargar el frente de la colonia (${img.status})`)
     buf = await renderRaw(Buffer.from(await img.arrayBuffer()))
   } else if (config.frontImagePath) {
@@ -56,7 +65,7 @@ export async function frenteDeColonia(coloniaId) {
   } else {
     throw new Error('Sin imagen de frente: configura tarjeta_frente_url en la colonia o FRONT_IMAGE en .env')
   }
-  frenteCache.set(coloniaId, buf)
+  frenteCache.set(cacheKey, buf)
   return buf
 }
 
@@ -94,7 +103,7 @@ export async function procesarJob(job, { jobIdPrefix = 'queue' } = {}) {
   const plantilla = TIPO_PLANTILLA[job.tipo]
   if (!plantilla) throw new Error(`Tipo de tarjeta desconocido: ${job.tipo}`)
 
-  const front = await frenteDeColonia(job.colonia_id)
+  const front = await frenteDeColonia(job.colonia_id, job.tipo)
   const back = await renderTemplate(plantilla, datosDelJob(job))
   return printCard({ front, back, copies: 1, jobId: `${jobIdPrefix}-${job.id.slice(0, 8)}` })
 }
