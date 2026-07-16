@@ -163,7 +163,13 @@ function render() {
 
 const nombreColonia = (id) => data.colonias.find(c => c.id === id)?.nombre || 'Villa'
 const invDe = (cid) => (data.inventario || []).filter(i => i.colonia_id === cid)
-const serialDeJob = (jobId) => (data.inventario || []).find(i => i.print_job_id === jobId)?.serial || null
+// Serial de una tarjeta impresa: asignado al imprimir (inventario) > confirmado
+// en la entrega > tag RFID ya ligado al vehículo (backfill de campaña).
+const serialDeJob = (jobId) =>
+  (data.inventario || []).find(i => i.print_job_id === jobId)?.serial ||
+  (data.entregas || []).find(e => e.print_job_id === jobId)?.serial ||
+  (data.solicitudes || []).find(s => s.print_job_id === jobId)?.vehicle?.tarjeta_rfid ||
+  null
 const entregaDeJob = (jobId) => (data.entregas || []).find(e => e.print_job_id === jobId) || null
 
 /** Chips de inventario/stock de la cabecera de villa. */
