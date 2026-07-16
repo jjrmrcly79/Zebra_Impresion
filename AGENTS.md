@@ -6,6 +6,26 @@ Corre en la Mac con la impresora (USB) y expone HTTP en `127.0.0.1`. Las apps de
 (Vecinity, nexia-tienda, etc.) le mandan JSON o un PNG y la tarjeta se imprime vía CUPS (`lp`).
 
 ## Estado del proyecto
+- **v0.4 (2026-07-15) — CONSOLA DE OPERADOR NEXIA (`/cola.html`)**: las villas mandan sus
+  tarjetas (comité aprueba en Vecinity → `vecino.print_jobs`) y el operador Nexia las trabaja
+  desde `http://localhost:7777/cola.html` sin IA: cola agrupada por villa con selección
+  (checkbox por tarjeta o villa completa), badge **BLANCA** (vehicular `personalizada=false`
+  = se marca lista SIN imprimir, entregar del stock), reintento de errores en la misma
+  selección, preview frente/reverso, historial con **reimprimir** (descuenta stock vía RPC),
+  stock físico editable por villa, y toggle de **modo automático** en runtime (default:
+  manual — el operador decide qué y cuándo). Endpoints nuevos token-gated: `GET /queue`,
+  `POST /queue/print|reprint|auto|stock`, `GET /queue/preview/:id`.
+  Migración Vecinity **071_print_operador.sql** (aplicada en prod): RPCs solo service_role
+  `print_take_selected(uuid[])` (acepta pendiente Y error), `print_reprint(uuid)`,
+  `print_set_stock(uuid,int)`.
+  **LaunchAgent instalado**: `com.nexia.print-bridge` (autoarranque + relanzado en crash,
+  logs en `logs/bridge.log`; reinstalar con `scripts/install-launchagent.sh`).
+  QA E2E DRY_RUN verificado con jobs sintéticos (impresión selectiva, blanca, retry,
+  reimpresión, stock) y limpiado. **E2E FÍSICO verificado** (2026-07-15): tarjeta real
+  impresa vía consola → CUPS → Zebra en ~20s, estado y stock correctos en BD.
+  ⚠️ **Pendiente**: NINGUNA colonia tiene `tarjeta_frente_url` — hoy imprime con el
+  `FRONT_IMAGE` temporal del `.env` (frente-demo). Subir el diseño real de cada villa
+  antes del primer lote de producción.
 - **v0.3 (2026-07-06)** — MODO COLA: el bridge es ahora el agente de impresión del módulo
   **Credenciales de Vecinity**. Con `QUEUE_POLL=true` barre `vecino.print_jobs` cada 10s
   (RPCs `print_take_jobs`/`print_mark_job`, solo service_role), imprime y marca estados;
@@ -40,9 +60,9 @@ Corre en la Mac con la impresora (USB) y expone HTTP en `127.0.0.1`. Las apps de
 - ✅ Multer 1.x → **2.2** (cierra deprecación/vulnerabilidad conocida). `npm audit`: 0 vulnerabilidades.
 - ⬜ **Ola 2 (aprobada, pendiente)**: lote asíncrono con progreso + cancelar; marcar impresos en BD
   (`vecino`) para filtro "solo pendientes" y auditoría de credenciales emitidas.
-- ⬜ **Ola 3 (aprobada, pendiente)**: botón "Imprimir credencial" en Vecinity; LaunchAgent de autoarranque;
-  el escáner de caseta (vigilancia/page.tsx) debe aprender a resolver `/r/<profile_id>` — hoy solo
-  entiende `/visita/<token>` (el QR de las tarjetas peatonales ya lo codifica, listo para esto).
+- ⬜ **Ola 3 (parcial)**: ~~LaunchAgent de autoarranque~~ ✅ v0.4; falta: el escáner de caseta
+  (vigilancia/page.tsx) debe aprender a resolver `/r/<profile_id>` — hoy solo entiende
+  `/visita/<token>` (el QR de las tarjetas peatonales ya lo codifica, listo para esto).
 - ⬜ **Foto del residente en la credencial** — GATEADO por dato: `vecino.profiles.avatar` guarda
   INICIALES ("JO"), no fotos. Requiere que Vecinity capture foto de perfil primero. La plantilla
   `credencial` (frente con foto) ya lo soporta cuando exista el dato.

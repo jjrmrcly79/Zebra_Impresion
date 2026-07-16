@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Plantilla: scripts/install-launchagent.sh sustituye __DIR__ y __NODE__ y la
+     instala en ~/Library/LaunchAgents/. No editar la copia instalada a mano. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nexia.print-bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>server.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__DIR__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>__DIR__/logs/bridge.log</string>
+  <key>StandardErrorPath</key>
+  <string>__DIR__/logs/bridge.log</string>
+</dict>
+</plist>

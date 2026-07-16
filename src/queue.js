@@ -3,8 +3,10 @@ import { renderTemplate, renderRaw } from './render.js'
 import { printCard } from './print.js'
 
 // Modo COLA: el bridge consume vecino.print_jobs (los crea Vecinity al aprobar
-// una solicitud de tarjeta). Polling con QUEUE_POLL=true en .env.
-// Las RPCs print_take_jobs / print_mark_job solo las puede ejecutar service_role.
+// una solicitud de tarjeta). Dos formas de consumir:
+//   · Manual (consola /cola.html): el operador selecciona jobs → print_take_selected.
+//   · Automática (toggle o QUEUE_POLL=true): barrido cada N seg → print_take_jobs.
+// Las RPCs de la cola solo las puede ejecutar service_role.
 
 // La tarjeta de visita frecuente usa la misma plantilla peatonal
 // (el payload trae rotulo='VISITA FRECUENTE' y su propio QR).
@@ -22,7 +24,7 @@ function headers(extra = {}) {
   }
 }
 
-async function rpc(fn, args = {}) {
+export async function rpc(fn, args = {}) {
   const res = await fetch(`${config.supabaseUrl}/rest/v1/rpc/${fn}`, {
     method: 'POST',
     headers: headers({ 'Content-Profile': 'vecino' }), // RPC en schema vecino
@@ -35,7 +37,7 @@ async function rpc(fn, args = {}) {
 // Frente compartido por colonia: 1º la imagen configurada en la colonia
 // (tarjeta_frente_url), si no hay, FRONT_IMAGE local del .env. Cacheado.
 const frenteCache = new Map()
-async function frenteDeColonia(coloniaId) {
+export async function frenteDeColonia(coloniaId) {
   if (frenteCache.has(coloniaId)) return frenteCache.get(coloniaId)
 
   let buf = null
@@ -58,21 +60,72 @@ async function frenteDeColonia(coloniaId) {
   return buf
 }
 
-async function procesarJob(job) {
-  const plantilla = TIPO_PLANTILLA[job.tipo]
-  if (!plantilla) throw new Error(`Tipo de tarjeta desconocido: ${job.tipo}`)
+/** ¿El job es tarjeta BLANCA? (vehicular sin personalizar: se entrega el RFID
+ *  tal cual, sin pasar por la impresora — no gasta ribbon). */
+export function esBlanca(job) {
+  return job.tipo === 'vehicular' && job.payload?.personalizada === false
+}
 
+/** Datos de plantilla del job con el QR ya armado (el payload trae el id,
+ *  el bridge pone la URL base). */
+export function datosDelJob(job) {
   const data = { ...job.payload }
-  // El QR se arma aquí: el payload trae el id, el bridge la URL base.
   if (job.tipo === 'peatonal' && data.profileId) {
     data.qrUrl = `${config.defaultQrUrl}/r/${data.profileId}`   // residente
   } else if (job.tipo === 'visita' && data.cardId) {
     data.qrUrl = `${config.defaultQrUrl}/vf/${data.cardId}`     // visita frecuente
   }
+  return data
+}
+
+/** Reverso del job como PNG, SIN imprimir (preview de la consola). */
+export async function renderReversoJob(job) {
+  if (esBlanca(job)) throw new Error('Tarjeta blanca: se entrega sin imprimir, no hay diseño que previsualizar.')
+  const plantilla = TIPO_PLANTILLA[job.tipo]
+  if (!plantilla) throw new Error(`Tipo de tarjeta desconocido: ${job.tipo}`)
+  return renderTemplate(plantilla, datosDelJob(job))
+}
+
+export async function procesarJob(job, { jobIdPrefix = 'queue' } = {}) {
+  if (esBlanca(job)) {
+    // Nada que imprimir: el operador entrega una tarjeta blanca del stock.
+    return { blanca: true, dryRun: config.dryRun }
+  }
+  const plantilla = TIPO_PLANTILLA[job.tipo]
+  if (!plantilla) throw new Error(`Tipo de tarjeta desconocido: ${job.tipo}`)
 
   const front = await frenteDeColonia(job.colonia_id)
-  const back = await renderTemplate(plantilla, data)
-  return printCard({ front, back, copies: 1, jobId: `queue-${job.id.slice(0, 8)}` })
+  const back = await renderTemplate(plantilla, datosDelJob(job))
+  return printCard({ front, back, copies: 1, jobId: `${jobIdPrefix}-${job.id.slice(0, 8)}` })
+}
+
+export const etiquetaDelJob = (job) => job.payload?.placa || job.payload?.nombre || job.id
+
+/** Imprime UN job ya tomado (estado=imprimiendo) y lo marca. Compartido por el
+ *  barrido automático y por la impresión por selección de la consola. */
+export async function imprimirYMarcar(job, { jobIdPrefix = 'queue' } = {}) {
+  const etiqueta = etiquetaDelJob(job)
+  try {
+    const r = await procesarJob(job, { jobIdPrefix })
+    await rpc('print_mark_job', { p_id: job.id, p_ok: true })
+    const modo = r.blanca ? 'BLANCA (entregar sin imprimir)' : r.dryRun ? 'generada (DRY_RUN)' : 'impresa'
+    console.log(`Cola: tarjeta ${job.tipo} "${etiqueta}" ${modo}`)
+    return { id: job.id, tarjeta: etiqueta, tipo: job.tipo, ok: true, blanca: !!r.blanca, dryRun: !!r.dryRun }
+  } catch (err) {
+    // El fallo de UNA tarjeta no tumba el ciclo: se marca error y sigue.
+    console.error(`Cola: error en "${etiqueta}": ${err.message}`)
+    await rpc('print_mark_job', { p_id: job.id, p_ok: false, p_error: err.message })
+      .catch((e) => console.error(`Cola: no se pudo marcar el error: ${e.message}`))
+    return { id: job.id, tarjeta: etiqueta, tipo: job.tipo, ok: false, error: err.message }
+  }
+}
+
+/** Modo manual (consola): toma SOLO los jobs seleccionados y los imprime. */
+export async function imprimirSeleccion(ids) {
+  const jobs = await rpc('print_take_selected', { p_ids: ids })
+  const results = []
+  for (const job of jobs) results.push(await imprimirYMarcar(job, { jobIdPrefix: 'sel' }))
+  return { tomadas: jobs.length, results }
 }
 
 let enCurso = false
@@ -81,19 +134,7 @@ async function tick() {
   enCurso = true
   try {
     const jobs = await rpc('print_take_jobs', { p_limit: 3 })
-    for (const job of jobs) {
-      const etiqueta = job.payload?.placa || job.payload?.nombre || job.id
-      try {
-        const r = await procesarJob(job)
-        await rpc('print_mark_job', { p_id: job.id, p_ok: true })
-        console.log(`Cola: tarjeta ${job.tipo} "${etiqueta}" ${r.dryRun ? 'generada (DRY_RUN)' : 'impresa'}`)
-      } catch (err) {
-        // El fallo de UNA tarjeta no tumba el ciclo: se marca error y sigue.
-        console.error(`Cola: error en "${etiqueta}": ${err.message}`)
-        await rpc('print_mark_job', { p_id: job.id, p_ok: false, p_error: err.message })
-          .catch((e) => console.error(`Cola: no se pudo marcar el error: ${e.message}`))
-      }
-    }
+    for (const job of jobs) await imprimirYMarcar(job)
   } catch (err) {
     console.error(`Cola: ${err.message}`) // red caída, etc. — reintenta al siguiente tick
   } finally {
@@ -101,9 +142,24 @@ async function tick() {
   }
 }
 
+// --- Modo automático: prendible/apagable en runtime desde la consola ---
+let timer = null
+export const queueAutoOn = () => !!timer
+
+export function setQueueAuto(on) {
+  if (on && !timer) {
+    timer = setInterval(tick, config.queueIntervalMs)
+    tick() // primer barrido inmediato
+    console.log(`Cola: modo automático ACTIVADO (barrido cada ${config.queueIntervalMs / 1000}s)`)
+  } else if (!on && timer) {
+    clearInterval(timer)
+    timer = null
+    console.log('Cola: modo automático apagado (consumo manual desde la consola)')
+  }
+  return queueAutoOn()
+}
+
 export function startQueueWorker() {
   if (!config.queuePoll) return false
-  setInterval(tick, config.queueIntervalMs)
-  tick() // primer barrido inmediato al arrancar
-  return true
+  return setQueueAuto(true)
 }

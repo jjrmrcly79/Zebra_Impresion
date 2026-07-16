@@ -25,6 +25,26 @@ export async function listColonias() {
   return get('colonias?select=id,nombre&order=nombre')
 }
 
+// --- Consola de operador: cola vecino.print_jobs de TODAS las villas ---
+
+const JOB_COLS = 'id,colonia_id,card_request_id,tipo,payload,estado,attempts,error,created_at,taken_at,printed_at'
+
+/** Cola activa + historial reciente + colonias con su stock físico. */
+export async function listQueueData() {
+  const [activos, historial, colonias] = await Promise.all([
+    get(`print_jobs?select=${JOB_COLS}&estado=in.(pendiente,imprimiendo,error)&order=created_at`),
+    get(`print_jobs?select=${JOB_COLS}&estado=eq.impresa&order=printed_at.desc&limit=300`),
+    get('colonias?select=id,nombre,stock_tarjetas&order=nombre'),
+  ])
+  return { activos, historial, colonias }
+}
+
+/** Un job por id (para reimprimir / previsualizar). */
+export async function getPrintJob(id) {
+  const [job] = await get(`print_jobs?select=${JOB_COLS}&id=eq.${encodeURIComponent(id)}`)
+  return job || null
+}
+
 /**
  * Lista los vehículos de una colonia, ya aplanados para imprimir.
  * @param {string} coloniaId

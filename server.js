@@ -6,8 +6,11 @@ import { config } from './src/config.js'
 import { renderTemplate, renderRaw } from './src/render.js'
 import { printCard, printerStatus, purgeTmp } from './src/print.js'
 import { templates } from './templates/index.js'
-import { listColonias, listVehicles, listResidentes } from './src/supabase.js'
-import { startQueueWorker } from './src/queue.js'
+import { listColonias, listVehicles, listResidentes, listQueueData, getPrintJob } from './src/supabase.js'
+import {
+  startQueueWorker, setQueueAuto, queueAutoOn, imprimirSeleccion,
+  procesarJob, rpc as queueRpc, frenteDeColonia, renderReversoJob, etiquetaDelJob,
+} from './src/queue.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -160,6 +163,79 @@ app.post('/print-batch', upload.fields([{ name: 'png', maxCount: 1 }]), requireT
     const okCount = results.filter((r) => r.ok).length
     console.log(`Lote ${req.body.tipo || 'vehicular'}: ${okCount}/${rows.length} tarjetas${config.dryRun ? ' (DRY_RUN)' : ' enviadas a impresión'}`)
     res.json({ ok: true, total: rows.length, impresas: okCount, dryRun: config.dryRun, results })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// --- Consola de operador Nexia (cola vecino.print_jobs de todas las villas) ---
+
+// Estado completo para la consola: cola activa, historial, colonias con stock.
+app.get('/queue', requireToken, async (_req, res) => {
+  try {
+    const data = await listQueueData()
+    res.json({ ok: true, ...data, auto: queueAutoOn(), dryRun: config.dryRun })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// Imprime SOLO los jobs seleccionados por el operador (pendientes o en error).
+app.post('/queue/print', requireToken, async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(Boolean) : []
+  if (!ids.length) return res.status(400).json({ ok: false, error: 'Manda "ids" con los jobs a imprimir' })
+  if (ids.length > 50) return res.status(400).json({ ok: false, error: `Demasiados (${ids.length}). Máximo 50 por tanda.` })
+  try {
+    const { tomadas, results } = await imprimirSeleccion(ids)
+    res.json({ ok: true, solicitadas: ids.length, tomadas, dryRun: config.dryRun, results })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// Reimprime un job ya impreso (gasta otra tarjeta: descuenta stock vía RPC).
+app.post('/queue/reprint', requireToken, async (req, res) => {
+  try {
+    const job = await getPrintJob(req.body?.id || '')
+    if (!job) return res.status(404).json({ ok: false, error: 'Job inexistente' })
+    if (job.estado !== 'impresa') return res.status(400).json({ ok: false, error: 'Solo se reimprime un job ya impreso' })
+    const r = await procesarJob(job, { jobIdPrefix: 'reimp' })
+    await queueRpc('print_reprint', { p_id: job.id })
+    console.log(`Cola: REIMPRESIÓN ${job.tipo} "${etiquetaDelJob(job)}"${r.blanca ? ' (blanca)' : ''}${r.dryRun ? ' DRY_RUN' : ''}`)
+    res.json({ ok: true, tarjeta: etiquetaDelJob(job), blanca: !!r.blanca, dryRun: !!r.dryRun })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// Vista previa de un job de la cola (?side=front | back, default back).
+app.get('/queue/preview/:id', requireToken, async (req, res) => {
+  try {
+    const job = await getPrintJob(req.params.id)
+    if (!job) return res.status(404).json({ ok: false, error: 'Job inexistente' })
+    const img = req.query.side === 'front'
+      ? await frenteDeColonia(job.colonia_id)
+      : await renderReversoJob(job)
+    res.type('image/png').send(img)
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message })
+  }
+})
+
+// Prende/apaga el barrido automático en runtime (arranca según QUEUE_POLL).
+app.post('/queue/auto', requireToken, (req, res) => {
+  res.json({ ok: true, auto: setQueueAuto(!!req.body?.on) })
+})
+
+// Actualiza el stock físico de tarjetas de una colonia (llegaron más).
+app.post('/queue/stock', requireToken, async (req, res) => {
+  const { coloniaId, stock } = req.body || {}
+  if (!coloniaId || !Number.isInteger(Number(stock)) || Number(stock) < 0) {
+    return res.status(400).json({ ok: false, error: 'Manda coloniaId y stock (entero ≥ 0)' })
+  }
+  try {
+    await queueRpc('print_set_stock', { p_colonia: coloniaId, p_stock: Number(stock) })
+    res.json({ ok: true, stock: Number(stock) })
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message })
   }

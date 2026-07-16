@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Consola de tarjetas · Vecinity</title>
+<style>
+  :root { --marca:#1f6feb; --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3; --mut:#8b949e; --ok:#3fb950; --err:#f85149; --warn:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--txt); padding-bottom:76px; }
+  header { padding:14px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; } .dot{ width:10px;height:10px;border-radius:50%;background:var(--ok);}
+  header small { color:var(--mut); }
+  header .right { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  a { color:var(--marca); text-decoration:none; font-size:13px; }
+  main { max-width:980px; margin:0 auto; padding:20px 24px; }
+  .tabs { display:flex; gap:8px; margin:14px 0; }
+  .tab { padding:9px 18px; border:1px solid var(--line); border-radius:8px; cursor:pointer; color:var(--mut); font-size:14px; }
+  .tab.active { background:var(--marca); color:#fff; border-color:var(--marca); }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; margin-bottom:16px; overflow:hidden; }
+  .colhead { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); background:#1c2129; }
+  .colhead h2 { font-size:15px; margin:0; }
+  .badge { font-size:11px; font-weight:600; padding:2px 9px; border-radius:99px; border:1px solid var(--line); color:var(--mut); }
+  .badge.stock-ok { color:var(--ok); border-color:var(--ok); }
+  .badge.stock-low { color:var(--err); border-color:var(--err); }
+  .badge.blanca { color:#e6edf3; background:#30363d; }
+  .badge.err { color:var(--err); border-color:var(--err); }
+  .badge.imprimiendo { color:var(--warn); border-color:var(--warn); }
+  .badge.dry { color:var(--warn); border-color:var(--warn); }
+  .job { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid #21262d; font-size:14px; }
+  .job:last-child { border-bottom:0; }
+  .job input[type=checkbox] { width:16px; height:16px; accent-color:var(--marca); }
+  .job .who { flex:1; min-width:0; }
+  .job .who .sub { font-size:12px; color:var(--mut); }
+  .job .errtxt { font-size:12px; color:var(--err); max-width:280px; }
+  .iconbtn { background:#21262d; border:1px solid var(--line); color:var(--txt); border-radius:7px; padding:5px 10px; cursor:pointer; font-size:13px; }
+  .iconbtn:hover { border-color:var(--marca); }
+  .colhead .iconbtn { margin-left:auto; }
+  .empty { padding:26px; text-align:center; color:var(--mut); font-size:14px; }
+  input[type=password], input[type=search] { padding:8px 10px; background:#0d1117; border:1px solid var(--line); border-radius:8px; color:var(--txt); font-size:13px; }
+  .actionbar { position:fixed; left:0; right:0; bottom:0; background:#161b22ee; border-top:1px solid var(--line); backdrop-filter:blur(6px); }
+  .actionbar .inner { max-width:980px; margin:0 auto; padding:12px 24px; display:flex; align-items:center; gap:14px; }
+  .primary { background:var(--marca); color:#fff; border:0; border-radius:8px; padding:11px 22px; font-size:14px; font-weight:600; cursor:pointer; }
+  .primary:disabled { opacity:.45; cursor:default; }
+  .msg { font-size:13px; min-height:18px; } .ok{color:var(--ok)} .err{color:var(--err)}
+  .toggle { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--mut); cursor:pointer; }
+  .toggle input { accent-color:var(--marca); width:15px; height:15px; }
+  /* modal preview */
+  #modal { position:fixed; inset:0; background:#000a; display:none; align-items:center; justify-content:center; z-index:50; }
+  #modal.open { display:flex; }
+  #modal .box { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; width:min(560px, 92vw); }
+  #modal .card { width:100%; aspect-ratio:1011/638; background:#0d1117; border:1px solid var(--line); border-radius:10px; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+  #modal img { width:100%; height:100%; object-fit:contain; }
+  #modal .row { display:flex; gap:8px; margin-top:12px; }
+  #modal .row button { flex:1; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span><h1>Consola de tarjetas · Vecinity</h1>
+  <small id="status">conectando…</small>
+  <span class="badge dry" id="dryBadge" style="display:none">DRY_RUN — no imprime de verdad</span>
+  <div class="right">
+    <label class="toggle" title="Con esto prendido el bridge imprime solo, sin seleccionar">
+      <input type="checkbox" id="autoToggle" /> Modo automático
+    </label>
+    <input type="password" id="token" placeholder="Token" style="width:110px" />
+    <a href="/index.html">Herramientas manuales →</a>
+  </div>
+</header>
+
+<main>
+  <div class="tabs">
+    <div class="tab active" data-tab="cola">Por imprimir <span id="nCola"></span></div>
+    <div class="tab" data-tab="hist">Historial <span id="nHist"></span></div>
+  </div>
+
+  <div id="vistaCola"><div class="empty">Cargando cola…</div></div>
+
+  <div id="vistaHist" style="display:none">
+    <input type="search" id="filtroHist" placeholder="Filtrar por placa, nombre o villa…" style="width:100%; margin-bottom:12px" />
+    <div id="histList"><div class="empty">Cargando historial…</div></div>
+  </div>
+</main>
+
+<div class="actionbar" id="actionbar">
+  <div class="inner">
+    <button class="primary" id="btnPrint" disabled>🖨 Imprimir seleccionadas</button>
+    <span class="msg" id="msg"></span>
+    <button class="iconbtn" id="btnRefresh" style="margin-left:auto">↻ Actualizar</button>
+  </div>
+</div>
+
+<div id="modal">
+  <div class="box">
+    <div class="card"><img id="pvImg" alt="preview" /></div>
+    <div class="msg" id="pvLabel" style="color:var(--mut); margin-top:8px"></div>
+    <div class="row">
+      <button class="iconbtn" id="pvFront">Frente</button>
+      <button class="iconbtn" id="pvBack">Reverso</button>
+      <button class="iconbtn" id="pvClose">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id)
+const msg = (t, cls='') => { const m = $('msg'); m.textContent = t; m.className = 'msg ' + cls }
+
+// Token compartido con index.html (el bridge es localhost-only).
+$('token').value = localStorage.getItem('printToken') || ''
+$('token').addEventListener('change', () => { localStorage.setItem('printToken', $('token').value.trim()); load() })
+const token = () => $('token').value.trim()
+const hdrs = (extra={}) => ({ 'x-print-token': token(), ...extra })
+
+const TIPO = { vehicular: '🚗', peatonal: '🚶', visita: '👋' }
+const fecha = (iso) => iso ? new Date(iso).toLocaleString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : ''
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))
+const etiqueta = (j) => j.payload?.placa || j.payload?.nombre || j.id.slice(0,8)
+
+let data = { activos: [], historial: [], colonias: [] }
+let seleccion = new Set()
+let ocupado = false            // no refrescar mientras se imprime
+let vista = 'cola'
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'))
+  t.classList.add('active'); vista = t.dataset.tab
+  $('vistaCola').style.display = vista === 'cola' ? '' : 'none'
+  $('vistaHist').style.display = vista === 'hist' ? '' : 'none'
+  $('actionbar').style.display = vista === 'cola' ? '' : 'none'
+})
+
+async function load() {
+  if (ocupado || !token()) { if (!token()) msg('Captura el token del bridge', 'err'); return }
+  try {
+    const r = await fetch('/queue', { headers: hdrs() })
+    const j = await r.json()
+    if (!j.ok) return msg(j.error || 'Error al cargar la cola', 'err')
+    data = j
+    $('dryBadge').style.display = j.dryRun ? '' : 'none'
+    $('autoToggle').checked = !!j.auto
+    // Selección: conservar solo ids que siguen imprimibles
+    const vivos = new Set(j.activos.filter(x => x.estado !== 'imprimiendo').map(x => x.id))
+    seleccion = new Set([...seleccion].filter(id => vivos.has(id)))
+    render()
+    if (msg && $('msg').classList.contains('err')) msg('')
+  } catch (e) { msg('Sin conexión con el bridge: ' + e.message, 'err') }
+}
+
+function render() {
+  $('nCola').textContent = data.activos.length ? `(${data.activos.length})` : ''
+  $('nHist').textContent = data.historial.length ? `(${data.historial.length})` : ''
+  renderCola(); renderHist(); syncPrintBtn()
+}
+
+const nombreColonia = (id) => data.colonias.find(c => c.id === id)?.nombre || 'Villa'
+
+function renderCola() {
+  const cont = $('vistaCola')
+  if (!data.activos.length) {
+    cont.innerHTML = '<div class="panel"><div class="empty">🎉 No hay tarjetas por imprimir. Las villas aún no mandan nuevas solicitudes.</div></div>'
+    return
+  }
+  const porColonia = {}
+  for (const j of data.activos) (porColonia[j.colonia_id] ||= []).push(j)
+
+  cont.innerHTML = Object.entries(porColonia).map(([cid, jobs]) => {
+    const col = data.colonias.find(c => c.id === cid) || {}
+    const stock = col.stock_tarjetas ?? 0
+    const stockCls = stock >= jobs.length ? 'stock-ok' : 'stock-low'
+    const seleccionables = jobs.filter(j => j.estado !== 'imprimiendo')
+    const todos = seleccionables.length && seleccionables.every(j => seleccion.has(j.id))
+    return `<div class="panel">
+      <div class="colhead">
+        <input type="checkbox" data-col="${cid}" ${todos ? 'checked' : ''} title="Seleccionar toda la villa" />
+        <h2>${esc(col.nombre || 'Villa')}</h2>
+        <span class="badge">${jobs.length} en cola</span>
+        <span class="badge ${stockCls}">stock: ${stock} tarjetas</span>
+        <button class="iconbtn" data-stock="${cid}">± stock</button>
+      </div>
+      ${jobs.map(j => `<div class="job">
+        <input type="checkbox" data-id="${j.id}" ${seleccion.has(j.id) ? 'checked' : ''} ${j.estado === 'imprimiendo' ? 'disabled' : ''} />
+        <span>${TIPO[j.tipo] || '💳'}</span>
+        <div class="who">
+          <div>${esc(etiqueta(j))}${j.payload?.casa ? ` · Casa ${esc(j.payload.casa)}` : ''}</div>
+          <div class="sub">${j.tipo}${j.payload?.marca ? ` · ${esc(j.payload.marca)} ${esc(j.payload.modelo || '')}` : ''} · ${fecha(j.created_at)}</div>
+        </div>
+        ${j.payload?.personalizada === false && j.tipo === 'vehicular' ? '<span class="badge blanca" title="Se entrega tarjeta blanca del stock, no pasa por la impresora">BLANCA</span>' : ''}
+        ${j.estado === 'imprimiendo' ? '<span class="badge imprimiendo">imprimiendo…</span>' : ''}
+        ${j.estado === 'error' ? `<span class="badge err" title="${esc(j.error || '')}">error · reintentable</span>` : ''}
+        ${j.payload?.personalizada === false && j.tipo === 'vehicular' ? '' : `<button class="iconbtn" data-pv="${j.id}">👁</button>`}
+      </div>`).join('')}
+    </div>`
+  }).join('')
+
+  cont.querySelectorAll('input[data-id]').forEach(cb => cb.onchange = () => {
+    cb.checked ? seleccion.add(cb.dataset.id) : seleccion.delete(cb.dataset.id)
+    renderCola(); syncPrintBtn()
+  })
+  cont.querySelectorAll('input[data-col]').forEach(cb => cb.onchange = () => {
+    const jobs = data.activos.filter(j => j.colonia_id === cb.dataset.col && j.estado !== 'imprimiendo')
+    jobs.forEach(j => cb.checked ? seleccion.add(j.id) : seleccion.delete(j.id))
+    renderCola(); syncPrintBtn()
+  })
+  cont.querySelectorAll('button[data-pv]').forEach(b => b.onclick = () => openPreview(b.dataset.pv))
+  cont.querySelectorAll('button[data-stock]').forEach(b => b.onclick = () => editarStock(b.dataset.stock))
+}
+
+function renderHist() {
+  const f = ($('filtroHist').value || '').toLowerCase()
+  const rows = data.historial.filter(j =>
+    !f || etiqueta(j).toLowerCase().includes(f) ||
+    (j.payload?.nombre || '').toLowerCase().includes(f) ||
+    nombreColonia(j.colonia_id).toLowerCase().includes(f)
+  )
+  $('histList').innerHTML = rows.length ? `<div class="panel">${rows.map(j => `<div class="job">
+      <span>${TIPO[j.tipo] || '💳'}</span>
+      <div class="who">
+        <div>${esc(etiqueta(j))}${j.payload?.casa ? ` · Casa ${esc(j.payload.casa)}` : ''}</div>
+        <div class="sub">${esc(nombreColonia(j.colonia_id))} · ${j.tipo} · impresa ${fecha(j.printed_at)}</div>
+      </div>
+      ${j.payload?.personalizada === false && j.tipo === 'vehicular' ? '<span class="badge blanca">BLANCA</span>' : `<button class="iconbtn" data-pv="${j.id}">👁</button>`}
+      <button class="iconbtn" data-re="${j.id}">↻ Reimprimir</button>
+    </div>`).join('')}</div>`
+    : '<div class="panel"><div class="empty">Sin tarjetas impresas' + (f ? ' con ese filtro' : ' todavía') + '.</div></div>'
+
+  $('histList').querySelectorAll('button[data-re]').forEach(b => b.onclick = () => reimprimir(b.dataset.re))
+  $('histList').querySelectorAll('button[data-pv]').forEach(b => b.onclick = () => openPreview(b.dataset.pv))
+}
+$('filtroHist').oninput = renderHist
+
+function syncPrintBtn() {
+  const n = seleccion.size
+  $('btnPrint').disabled = !n || ocupado
+  $('btnPrint').textContent = n ? `🖨 Imprimir seleccionadas (${n})` : '🖨 Imprimir seleccionadas'
+}
+
+$('btnPrint').onclick = async () => {
+  const ids = [...seleccion]
+  if (!ids.length) return
+  const blancas = data.activos.filter(j => ids.includes(j.id) && j.payload?.personalizada === false && j.tipo === 'vehicular').length
+  const aviso = blancas ? `\n(${blancas} son BLANCAS: solo se marcan como listas, entrégalas del stock)` : ''
+  if (!confirm(`¿Imprimir ${ids.length} tarjeta(s)? Revisa que haya tarjetas y ribbon en la Zebra.${aviso}`)) return
+  ocupado = true; syncPrintBtn(); msg(`Imprimiendo ${ids.length}…`)
+  try {
+    const j = await (await fetch('/queue/print', {
+      method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify({ ids }),
+    })).json()
+    if (!j.ok) return msg(j.error || 'Error', 'err')
+    const okN = j.results.filter(r => r.ok).length
+    const errs = j.results.filter(r => !r.ok)
+    seleccion.clear()
+    msg(`${j.dryRun ? 'DRY_RUN: ' : '✓ '}${okN}/${j.results.length} listas` +
+        (errs.length ? ` · errores: ${errs.map(e => e.tarjeta).join(', ')}` : ''), errs.length ? 'err' : 'ok')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+  finally { ocupado = false; load() }
+}
+
+async function reimprimir(id) {
+  const j = data.historial.find(x => x.id === id)
+  if (!confirm(`¿Reimprimir la tarjeta de "${j ? etiqueta(j) : id}"? Gasta otra tarjeta física (descuenta stock).`)) return
+  ocupado = true; msg('Reimprimiendo…')
+  try {
+    const r = await (await fetch('/queue/reprint', {
+      method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify({ id }),
+    })).json()
+    msg(r.ok ? `${r.dryRun ? 'DRY_RUN: ' : '✓ '}reimpresa "${r.tarjeta}"${r.blanca ? ' (blanca: entrégala del stock)' : ''}` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+  finally { ocupado = false; load() }
+}
+
+async function editarStock(cid) {
+  const col = data.colonias.find(c => c.id === cid)
+  const v = prompt(`Stock físico de tarjetas de ${col?.nombre || 'la villa'} (hoy: ${col?.stock_tarjetas ?? 0}):`, col?.stock_tarjetas ?? 0)
+  if (v === null) return
+  const n = parseInt(v, 10)
+  if (!(n >= 0)) return msg('Stock inválido', 'err')
+  try {
+    const r = await (await fetch('/queue/stock', {
+      method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify({ coloniaId: cid, stock: n }),
+    })).json()
+    msg(r.ok ? `✓ Stock de ${col?.nombre}: ${n}` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
+  } catch (e) { msg('Error: ' + e.message, 'err') }
+  load()
+}
+
+$('autoToggle').onchange = async () => {
+  const on = $('autoToggle').checked
+  if (on && !confirm('Modo automático: el bridge imprimirá TODO lo pendiente de todas las villas conforme llegue, sin que selecciones. ¿Activar?')) {
+    $('autoToggle').checked = false; return
+  }
+  try {
+    const r = await (await fetch('/queue/auto', {
+      method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify({ on }),
+    })).json()
+    $('autoToggle').checked = !!r.auto
+    msg(r.auto ? 'Modo automático activado' : 'Modo automático apagado', 'ok')
+  } catch (e) { $('autoToggle').checked = !on; msg('Error: ' + e.message, 'err') }
+}
+
+// --- Preview (modal) ---
+let pvId = null
+async function pvLoad(side) {
+  const res = await fetch(`/queue/preview/${pvId}?side=${side}`, { headers: hdrs() })
+  if (!res.ok) { const j = await res.json().catch(() => ({})); return msg(j.error || 'Sin vista previa', 'err') }
+  $('pvImg').src = URL.createObjectURL(await res.blob())
+  $('pvLabel').textContent = side === 'front' ? 'Frente (diseño de la villa)' : 'Reverso (datos de la tarjeta)'
+}
+function openPreview(id) { pvId = id; $('modal').classList.add('open'); pvLoad('back') }
+$('pvFront').onclick = () => pvLoad('front')
+$('pvBack').onclick = () => pvLoad('back')
+$('pvClose').onclick = () => $('modal').classList.remove('open')
+$('modal').onclick = (e) => { if (e.target === $('modal')) $('modal').classList.remove('open') }
+
+$('btnRefresh').onclick = load
+
+fetch('/health').then(r => r.json()).then(h => {
+  $('status').textContent = `${h.printer}${h.dryRun ? '' : ' · lista'}`
+}).catch(() => $('status').textContent = 'sin conexión')
+
+load()
+setInterval(() => { if (!ocupado) load() }, 15000)
+</script>
+</body>
+</html>
