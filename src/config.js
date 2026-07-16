@@ -17,7 +17,7 @@ export const config = {
 
   dryRun: String(process.env.DRY_RUN).toLowerCase() === 'true',
   // URL que codifica el QR del reverso si la app no manda una propia.
-  defaultQrUrl: process.env.DEFAULT_QR_URL || 'https://vecinovigilante.nexiasoluciones.com.mx',
+  defaultQrUrl: process.env.DEFAULT_QR_URL || 'https://vecinity.nexiasoluciones.com.mx',
   // Supabase (impresión por lote desde schema vecino). Server-side, nunca al navegador.
   supabaseUrl: process.env.SUPABASE_URL || '',
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
