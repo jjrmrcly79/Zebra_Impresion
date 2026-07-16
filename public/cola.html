@@ -72,10 +72,13 @@
 <main>
   <div class="tabs">
     <div class="tab active" data-tab="cola">Por imprimir <span id="nCola"></span></div>
+    <div class="tab" data-tab="sol">Solicitudes <span id="nSol"></span></div>
     <div class="tab" data-tab="hist">Historial <span id="nHist"></span></div>
   </div>
 
   <div id="vistaCola"><div class="empty">Cargando cola…</div></div>
+
+  <div id="vistaSol" style="display:none"><div class="empty">Cargando solicitudes…</div></div>
 
   <div id="vistaHist" style="display:none">
     <input type="search" id="filtroHist" placeholder="Filtrar por placa, nombre o villa…" style="width:100%; margin-bottom:12px" />
@@ -127,6 +130,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'))
   t.classList.add('active'); vista = t.dataset.tab
   $('vistaCola').style.display = vista === 'cola' ? '' : 'none'
+  $('vistaSol').style.display = vista === 'sol' ? '' : 'none'
   $('vistaHist').style.display = vista === 'hist' ? '' : 'none'
   $('actionbar').style.display = vista === 'cola' ? '' : 'none'
 })
@@ -150,8 +154,10 @@ async function load() {
 
 function render() {
   $('nCola').textContent = data.activos.length ? `(${data.activos.length})` : ''
+  const pendSol = (data.solicitudes || []).filter(s => s.estado === 'solicitada').length
+  $('nSol').textContent = pendSol ? `(${pendSol})` : ''
   $('nHist').textContent = data.historial.length ? `(${data.historial.length})` : ''
-  renderCola(); renderHist(); syncPrintBtn()
+  renderCola(); renderSol(); renderHist(); syncPrintBtn()
 }
 
 const nombreColonia = (id) => data.colonias.find(c => c.id === id)?.nombre || 'Villa'
@@ -205,6 +211,60 @@ function renderCola() {
   })
   cont.querySelectorAll('button[data-pv]').forEach(b => b.onclick = () => openPreview(b.dataset.pv))
   cont.querySelectorAll('button[data-stock]').forEach(b => b.onclick = () => editarStock(b.dataset.stock))
+}
+
+// --- Solicitudes: el pipeline COMPLETO por villa (incluye lo que aún no llega
+// a la cola: esperando pago del vecino o aprobación del comité, y lo entregado
+// históricamente aunque se haya impreso fuera del sistema) ---
+const titularSol = (s) => s.tipo === 'vehicular'
+  ? (s.vehicle?.placa || 'Vehículo')
+  : s.tipo === 'peatonal' ? (s.beneficiario?.nombre || 'Residente') : (s.beneficiario_nombre || 'Visita')
+
+const PASO_SOL = (s) => {
+  if (s.estado !== 'solicitada') return null
+  if (s.pago_estado === 'pendiente') return { txt: 'esperando pago del vecino', cls: 'imprimiendo' }
+  if (s.pago_estado === 'en_revision') return { txt: 'comprobante en revisión (comité)', cls: '' }
+  if (s.pago_estado === 'rechazado') return { txt: 'pago rechazado — vecino debe reponer', cls: 'err' }
+  return { txt: 'lista para que el comité apruebe', cls: 'stock-ok' }
+}
+
+function renderSol() {
+  const cont = $('vistaSol')
+  const sols = data.solicitudes || []
+  if (!sols.length) {
+    cont.innerHTML = '<div class="panel"><div class="empty">Sin solicitudes de tarjeta en ninguna villa.</div></div>'
+    return
+  }
+  const porColonia = {}
+  for (const s of sols) (porColonia[s.colonia_id] ||= []).push(s)
+
+  cont.innerHTML = Object.entries(porColonia).map(([cid, rows]) => {
+    const n = (f) => rows.filter(f).length
+    const pendientes = rows.filter(s => s.estado === 'solicitada')
+    const chips = [
+      { t: `${n(s => s.estado === 'entregada')} entregadas`, cls: 'stock-ok' },
+      { t: `${n(s => s.estado === 'en_cola' || s.estado === 'impresa')} en cola / impresas`, cls: '' },
+      { t: `${n(s => s.estado === 'solicitada' && ['no_requerido','aprobado'].includes(s.pago_estado))} esperan al comité`, cls: 'imprimiendo' },
+      { t: `${n(s => s.estado === 'solicitada' && ['pendiente','en_revision','rechazado'].includes(s.pago_estado))} esperan pago`, cls: 'err' },
+    ]
+    return `<div class="panel">
+      <div class="colhead">
+        <h2>${esc(nombreColonia(cid))}</h2>
+        ${chips.map(c => `<span class="badge ${c.cls}">${c.t}</span>`).join('')}
+      </div>
+      ${pendientes.length ? pendientes.map(s => {
+        const paso = PASO_SOL(s)
+        return `<div class="job">
+          <span>${TIPO[s.tipo] || '💳'}</span>
+          <div class="who">
+            <div>${esc(titularSol(s))}${s.house?.numero ? ` · Casa ${esc(s.house.numero)}` : ''}</div>
+            <div class="sub">${s.tipo}${s.es_incluida ? ' · incluida $0' : s.costo_estimado ? ` · $${Number(s.costo_estimado).toLocaleString('es-MX')}` : ''} · ${fecha(s.created_at)}</div>
+          </div>
+          <span class="badge ${paso.cls}">${paso.txt}</span>
+        </div>`
+      }).join('') : '<div class="empty">Nada pendiente: todo lo solicitado ya está en cola, impreso o entregado.</div>'}
+    </div>`
+  }).join('')
 }
 
 function renderHist() {
