@@ -156,7 +156,8 @@ function render() {
   $('nCola').textContent = data.activos.length ? `(${data.activos.length})` : ''
   const pendSol = (data.solicitudes || []).filter(s => s.estado === 'solicitada').length
   $('nSol').textContent = pendSol ? `(${pendSol})` : ''
-  $('nHist').textContent = data.historial.length ? `(${data.historial.length})` : ''
+  const nHist = historialFusionado().length
+  $('nHist').textContent = nHist ? `(${nHist})` : ''
   renderCola(); renderSol(); renderHist(); syncPrintBtn()
 }
 
@@ -267,23 +268,52 @@ function renderSol() {
   }).join('')
 }
 
+/** Historial fusionado: lo impreso POR el sistema (print_jobs, reimprimible) +
+ *  lo entregado históricamente fuera del sistema (card_requests entregadas sin
+ *  job — p. ej. los lotes manuales previos a la consola). */
+function historialFusionado() {
+  const jobIds = new Set(data.historial.map(j => j.id))
+  const entregadaPorJob = new Map((data.solicitudes || [])
+    .filter(s => s.estado === 'entregada' && s.print_job_id)
+    .map(s => [s.print_job_id, s]))
+
+  const delSistema = data.historial.map(j => ({
+    id: j.id, reimprimible: true, tipo: j.tipo, colonia_id: j.colonia_id,
+    titulo: etiqueta(j), casa: j.payload?.casa,
+    blanca: j.payload?.personalizada === false && j.tipo === 'vehicular',
+    entregada: entregadaPorJob.has(j.id),
+    cuando: j.printed_at, nota: `impresa ${fecha(j.printed_at)}`,
+  }))
+  const historicas = (data.solicitudes || [])
+    .filter(s => s.estado === 'entregada' && (!s.print_job_id || !jobIds.has(s.print_job_id)))
+    .map(s => ({
+      id: s.id, reimprimible: false, tipo: s.tipo, colonia_id: s.colonia_id,
+      titulo: titularSol(s), casa: s.house?.numero, blanca: false, entregada: true,
+      cuando: s.delivered_at || s.created_at,
+      nota: `entregada ${fecha(s.delivered_at || s.created_at)} · impresa fuera del sistema`,
+    }))
+  return [...delSistema, ...historicas].sort((a, b) => (b.cuando || '').localeCompare(a.cuando || ''))
+}
+
 function renderHist() {
   const f = ($('filtroHist').value || '').toLowerCase()
-  const rows = data.historial.filter(j =>
-    !f || etiqueta(j).toLowerCase().includes(f) ||
-    (j.payload?.nombre || '').toLowerCase().includes(f) ||
-    nombreColonia(j.colonia_id).toLowerCase().includes(f)
+  const rows = historialFusionado().filter(r =>
+    !f || r.titulo.toLowerCase().includes(f) ||
+    String(r.casa || '').toLowerCase().includes(f) ||
+    nombreColonia(r.colonia_id).toLowerCase().includes(f)
   )
-  $('histList').innerHTML = rows.length ? `<div class="panel">${rows.map(j => `<div class="job">
-      <span>${TIPO[j.tipo] || '💳'}</span>
+  $('histList').innerHTML = rows.length ? `<div class="panel">${rows.map(r => `<div class="job">
+      <span>${TIPO[r.tipo] || '💳'}</span>
       <div class="who">
-        <div>${esc(etiqueta(j))}${j.payload?.casa ? ` · Casa ${esc(j.payload.casa)}` : ''}</div>
-        <div class="sub">${esc(nombreColonia(j.colonia_id))} · ${j.tipo} · impresa ${fecha(j.printed_at)}</div>
+        <div>${esc(r.titulo)}${r.casa ? ` · Casa ${esc(r.casa)}` : ''}</div>
+        <div class="sub">${esc(nombreColonia(r.colonia_id))} · ${r.tipo} · ${esc(r.nota)}</div>
       </div>
-      ${j.payload?.personalizada === false && j.tipo === 'vehicular' ? '<span class="badge blanca">BLANCA</span>' : `<button class="iconbtn" data-pv="${j.id}">👁</button>`}
-      <button class="iconbtn" data-re="${j.id}">↻ Reimprimir</button>
+      ${r.blanca ? '<span class="badge blanca">BLANCA</span>' : ''}
+      ${r.entregada ? '<span class="badge stock-ok">entregada</span>' : ''}
+      ${r.reimprimible && !r.blanca ? `<button class="iconbtn" data-pv="${r.id}">👁</button>` : ''}
+      ${r.reimprimible ? `<button class="iconbtn" data-re="${r.id}">↻ Reimprimir</button>` : ''}
     </div>`).join('')}</div>`
-    : '<div class="panel"><div class="empty">Sin tarjetas impresas' + (f ? ' con ese filtro' : ' todavía') + '.</div></div>'
+    : '<div class="panel"><div class="empty">Sin tarjetas impresas ni entregadas' + (f ? ' con ese filtro' : ' todavía') + '.</div></div>'
 
   $('histList').querySelectorAll('button[data-re]').forEach(b => b.onclick = () => reimprimir(b.dataset.re))
   $('histList').querySelectorAll('button[data-pv]').forEach(b => b.onclick = () => openPreview(b.dataset.pv))

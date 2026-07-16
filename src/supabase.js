@@ -31,7 +31,7 @@ const JOB_COLS = 'id,colonia_id,card_request_id,tipo,payload,estado,attempts,err
 
 // Pipeline completo de solicitudes (lo que aún NO llega a la cola de impresión
 // también cuenta para el operador: esperando pago del vecino o al comité).
-const SOL_COLS = 'id,colonia_id,tipo,estado,pago_estado,es_incluida,personalizada,costo_estimado,created_at,beneficiario_nombre,' +
+const SOL_COLS = 'id,colonia_id,tipo,estado,pago_estado,es_incluida,personalizada,costo_estimado,created_at,delivered_at,print_job_id,beneficiario_nombre,' +
   'vehicle:vehicles(placa),beneficiario:profiles!card_requests_beneficiario_profile_id_fkey(nombre),house:houses(numero)'
 
 /** Cola activa + historial reciente + solicitudes (pipeline) + colonias con stock. */
