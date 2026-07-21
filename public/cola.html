@@ -165,12 +165,17 @@ const nombreColonia = (id) => data.colonias.find(c => c.id === id)?.nombre || 'V
 const invDe = (cid) => (data.inventario || []).filter(i => i.colonia_id === cid)
 // Serial de una tarjeta impresa: asignado al imprimir (inventario) > confirmado
 // en la entrega > tag RFID ya ligado al vehículo (backfill de campaña).
+// Un job reimpreso deja varias filas de inventario: las 'reemplazada' (muertas)
+// y UNA 'asignada' (la que trae el vecino). El serial vigente es esa.
 const serialDeJob = (jobId) =>
-  (data.inventario || []).find(i => i.print_job_id === jobId)?.serial ||
+  (data.inventario || []).find(i => i.print_job_id === jobId && i.estado === 'asignada')?.serial ||
   (data.entregas || []).find(e => e.print_job_id === jobId)?.serial ||
   (data.solicitudes || []).find(s => s.print_job_id === jobId)?.vehicle?.tarjeta_rfid ||
   null
 const entregaDeJob = (jobId) => (data.entregas || []).find(e => e.print_job_id === jobId) || null
+/** Seriales que este job quemó en reimpresiones anteriores (dados de baja). */
+const serialesMuertos = (jobId) => (data.inventario || [])
+  .filter(i => i.print_job_id === jobId && i.estado === 'reemplazada').map(i => i.serial)
 
 /** Chips de inventario/stock de la cabecera de villa. */
 function stockChips(cid, enCola = 0) {
@@ -307,6 +312,7 @@ function historialFusionado() {
   const delSistema = data.historial.map(j => {
     const firma = entregaDeJob(j.id)   // entrega FIRMADA (la verdad física)
     const serial = serialDeJob(j.id)
+    const muertos = serialesMuertos(j.id)
     return {
       id: j.id, reimprimible: true, tipo: j.tipo, colonia_id: j.colonia_id,
       titulo: etiqueta(j), casa: j.payload?.casa,
@@ -314,6 +320,7 @@ function historialFusionado() {
       entregada: !!firma, porEntregar: !firma,
       cuando: j.printed_at,
       nota: `impresa ${fecha(j.printed_at)}${serial ? ` · S/N ${serial}` : ''}` +
+            (muertos.length ? ` · reemplaza ${muertos.join(', ')} (dada${muertos.length > 1 ? 's' : ''} de baja)` : '') +
             (firma ? ` · recibió ${firma.firmante} ✍︎ ${fecha(firma.delivered_at)}` : ''),
     }
   })
@@ -387,13 +394,20 @@ $('btnPrint').onclick = async () => {
 
 async function reimprimir(id) {
   const j = data.historial.find(x => x.id === id)
-  if (!confirm(`¿Reimprimir la tarjeta de "${j ? etiqueta(j) : id}"? Gasta otra tarjeta física (descuenta stock).`)) return
+  const actual = serialDeJob(id)
+  if (!confirm(`¿Reimprimir la tarjeta de "${j ? etiqueta(j) : id}"?\n\n`
+    + `Se gasta la SIGUIENTE tarjeta del paquete.\n`
+    + (actual ? `La actual (S/N ${actual}) se da de BAJA: deja de abrir la pluma.\n` : '')
+    + `Si ya la tenía el vecino, recógela.`)) return
   ocupado = true; msg('Reimprimiendo…')
   try {
     const r = await (await fetch('/queue/reprint', {
       method: 'POST', headers: hdrs({ 'Content-Type': 'application/json' }), body: JSON.stringify({ id }),
     })).json()
-    msg(r.ok ? `${r.dryRun ? 'DRY_RUN: ' : '✓ '}reimpresa "${r.tarjeta}"${r.blanca ? ' (blanca: entrégala del stock)' : ''}` : (r.error || 'Error'), r.ok ? 'ok' : 'err')
+    msg(r.ok ? `${r.dryRun ? 'DRY_RUN: ' : '✓ '}reimpresa "${r.tarjeta}"${r.blanca ? ' (blanca: entrégala del stock)' : ''}`
+      + (r.serial ? ` · nueva S/N ${r.serial}` : '')
+      + (r.serialAnterior ? ` · baja ${r.serialAnterior}` : '')
+      : (r.error || 'Error'), r.ok ? 'ok' : 'err')
   } catch (e) { msg('Error: ' + e.message, 'err') }
   finally { ocupado = false; load() }
 }

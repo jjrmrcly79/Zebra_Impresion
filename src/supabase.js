@@ -48,6 +48,29 @@ export async function listQueueData() {
   return { activos, historial, solicitudes, colonias, inventario, entregas }
 }
 
+/**
+ * Pre-validación de reimpresión ANTES de gastar tarjeta y ribbon.
+ * La verdad la impone vecino.print_reprint (transaccional); esto solo evita
+ * imprimir para que la RPC rechace después con la tarjeta ya quemada.
+ * @param {{id:string, colonia_id:string}} job
+ * @returns {Promise<{serialActual: string|null, serialSiguiente: string|null}>}
+ */
+export async function checkReimpresion(job) {
+  const [entregas, vigente, siguiente, inventario] = await Promise.all([
+    get(`card_deliveries?select=print_job_id&print_job_id=eq.${job.id}&limit=1`),
+    get(`card_inventory?select=serial&print_job_id=eq.${job.id}&estado=eq.asignada&limit=1`),
+    get(`card_inventory?select=serial&colonia_id=eq.${job.colonia_id}&estado=eq.disponible&order=orden&limit=1`),
+    get(`card_inventory?select=serial&colonia_id=eq.${job.colonia_id}&limit=1`),
+  ])
+  if (entregas.length) {
+    throw new Error('Esta tarjeta ya se entregó firmada. Usa "Re-encolar" para reponerla: la nueva necesita su propia firma.')
+  }
+  if (inventario.length && !siguiente.length) {
+    throw new Error('No hay tarjetas físicas disponibles en el inventario de esta villa. Registra el lote antes de reimprimir.')
+  }
+  return { serialActual: vigente[0]?.serial || null, serialSiguiente: siguiente[0]?.serial || null }
+}
+
 /** Un job por id (para reimprimir / previsualizar). */
 export async function getPrintJob(id) {
   const [job] = await get(`print_jobs?select=${JOB_COLS}&id=eq.${encodeURIComponent(id)}`)

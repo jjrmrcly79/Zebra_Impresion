@@ -6,7 +6,7 @@ import { config } from './src/config.js'
 import { renderTemplate, renderRaw } from './src/render.js'
 import { printCard, printerStatus, purgeTmp } from './src/print.js'
 import { templates } from './templates/index.js'
-import { listColonias, listVehicles, listResidentes, listQueueData, getPrintJob } from './src/supabase.js'
+import { listColonias, listVehicles, listResidentes, listQueueData, getPrintJob, checkReimpresion } from './src/supabase.js'
 import {
   startQueueWorker, setQueueAuto, queueAutoOn, imprimirSeleccion,
   procesarJob, rpc as queueRpc, frenteDeColonia, renderReversoJob, etiquetaDelJob,
@@ -199,10 +199,16 @@ app.post('/queue/reprint', requireToken, async (req, res) => {
     const job = await getPrintJob(req.body?.id || '')
     if (!job) return res.status(404).json({ ok: false, error: 'Job inexistente' })
     if (job.estado !== 'impresa') return res.status(400).json({ ok: false, error: 'Solo se reimprime un job ya impreso' })
+    // Se valida ANTES de imprimir: si la RPC fuera a rechazar, no gastamos
+    // tarjeta ni ribbon (la RPC sigue siendo la autoridad transaccional).
+    await checkReimpresion(job)
     const r = await procesarJob(job, { jobIdPrefix: 'reimp' })
-    await queueRpc('print_reprint', { p_id: job.id })
-    console.log(`Cola: REIMPRESIÓN ${job.tipo} "${etiquetaDelJob(job)}"${r.blanca ? ' (blanca)' : ''}${r.dryRun ? ' DRY_RUN' : ''}`)
-    res.json({ ok: true, tarjeta: etiquetaDelJob(job), blanca: !!r.blanca, dryRun: !!r.dryRun })
+    const marca = await queueRpc('print_reprint', { p_id: job.id })
+    const serial = marca?.serial || null
+    const serialAnterior = marca?.serial_anterior || null
+    console.log(`Cola: REIMPRESIÓN ${job.tipo} "${etiquetaDelJob(job)}"${r.blanca ? ' (blanca)' : ''}`
+      + `${serial ? ` · S/N ${serial}` : ''}${serialAnterior ? ` · baja ${serialAnterior}` : ''}${r.dryRun ? ' DRY_RUN' : ''}`)
+    res.json({ ok: true, tarjeta: etiquetaDelJob(job), blanca: !!r.blanca, dryRun: !!r.dryRun, serial, serialAnterior })
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message })
   }
