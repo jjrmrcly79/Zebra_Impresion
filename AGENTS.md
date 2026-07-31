@@ -6,6 +6,13 @@ Corre en la Mac con la impresora (USB) y expone HTTP en `127.0.0.1`. Las apps de
 (Vecinity, nexia-tienda, etc.) le mandan JSON o un PNG y la tarjeta se imprime vía CUPS (`lp`).
 
 ## Estado del proyecto
+- **2026-07-31 — Lote de 11 tarjetas registrado (Villa Catania)**: paquete NO contiguo
+  (mezcla series 148404xx/148402xx/149389xx) → `print_registrar_lote` no aplica (solo rangos
+  desde→hasta); se insertó directo en `vecino.card_inventory` vía `/pg/query` replicando su
+  efecto (orden 97–107 continuando el máximo + sync `colonias.stock_tarjetas`=11). La #1 del
+  paquete (14840409, abajo, imprime primero) ya existía como única disponible en orden 97;
+  se agregaron las otras 10 (98=14840408 … 107=14938922). Verificado: 11 disponibles en
+  orden exacto del paquete físico.
 - **v0.4 (2026-07-15) — CONSOLA DE OPERADOR NEXIA (`/cola.html`)**: las villas mandan sus
   tarjetas (comité aprueba en Vecinity → `vecino.print_jobs`) y el operador Nexia las trabaja
   desde `http://localhost:7777/cola.html` sin IA: cola agrupada por villa con selección
